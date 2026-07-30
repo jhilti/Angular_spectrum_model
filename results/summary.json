@@ -1,0 +1,58 @@
+{
+  "model": "3D FFT angular spectrum with exact kz and isotropic P-SV plate solve",
+  "phasor_convention": "exp(-i omega t)",
+  "materials": {
+    "water": {
+      "density_kg_m3": 997.77,
+      "sound_speed_m_s": 1488.4
+    },
+    "polypropylene": {
+      "density_kg_m3": 900.0,
+      "longitudinal_speed_m_s": 2732.0,
+      "shear_speed_m_s": 1014.6393277994114,
+      "poisson_ratio": 0.42,
+      "longitudinal_attenuation_db_per_m": 0.0,
+      "shear_attenuation_db_per_m": 0.0
+    },
+    "DMSO": {
+      "density_kg_m3": 1098.4,
+      "sound_speed_m_s": 1499.0
+    }
+  },
+  "geometry": {
+    "aperture_diameter_m": 0.013000000000000001,
+    "geometric_focal_length_m": 0.025,
+    "water_path_to_plate_m": 0.02,
+    "plate_thickness_m": 0.0007800000000000001
+  },
+  "sampling": {
+    "water_wavelength_m": 0.00014884000000000002,
+    "samples_per_wavelength_x": 3.721000000000001,
+    "samples_per_wavelength_y": 3.721000000000001,
+    "aperture_edge_angle_deg": 14.574216198038739,
+    "window_x_m": 0.020479999999999998,
+    "window_y_m": 0.020479999999999998
+  },
+  "assumptions_requiring_measurement": [
+    "PP shear speed (currently inferred from Poisson ratio unless supplied)",
+    "PP density unless supplied",
+    "PP longitudinal and shear attenuation (zero by default)",
+    "DMSO sound speed, density and attenuation for the actual concentration",
+    "absolute electro-acoustic source calibration"
+  ],
+  "frequency_hz": 10000000.0,
+  "focus_physical_m": 0.0240925,
+  "focus_after_plate_m": 0.0033125,
+  "reference_focus_physical_m": 0.0247175,
+  "lateral_fwhm_m": 0.00040937732666996587,
+  "axial_fwhm_m": 0.005513220505231446,
+  "peak_pressure_for_1Pa_aperture_pa": 33.83046402818476,
+  "reference_peak_pressure_for_1Pa_aperture_pa": 36.462374018952076,
+  "peak_pressure_ratio_plate_to_reference": 0.9278184687206782,
+  "normal_power_transmission_at_center_frequency": 0.87888036589939,
+  "maximum_lossless_energy_balance_error": 1.509903313490213e-14,
+  "pp_longitudinal_refraction_at_aperture_edge_deg": 27.508551866859346,
+  "pp_shear_refraction_at_aperture_edge_deg": 9.877270982223234,
+  "pulse_simulated_frequency_bins": 213,
+  "pulse_output_peak_relative": 35.19179152029916
+}
