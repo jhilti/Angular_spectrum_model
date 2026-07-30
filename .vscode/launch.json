@@ -1,0 +1,23 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "ASM: Standardfall",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/examples/custom_case.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "justMyCode": true
+        },
+        {
+            "name": "ASM: DMSO 70–100 %",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/examples/dmso_concentration_sweep.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "justMyCode": true
+        }
+    ]
+}
