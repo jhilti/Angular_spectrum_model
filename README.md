@@ -74,6 +74,62 @@ gemittelt. Sie werden aus gemessenen Dichte- und Schallgeschwindigkeitsdaten
 bei 20 und 40 °C interpoliert
 ([Palaiologou et al., 2006](https://doi.org/10.1007/s10953-006-9082-5)).
 
+Ein monostatisches Pulse-Echo-Beispiel verwendet denselben fokussierten
+Transducer nacheinander als Sender und Mikrofon. Es simuliert einen
+positiv beginnenden 10-MHz-Einzykluspuls durch 25,3 mm Wasser, 0,78 mm PP und
+4,22 mm 80 Vol.-% DMSO bis zur Grenzfläche mit Luft:
+
+```bash
+python examples/pulse_echo_80pct_dmso.py
+```
+
+Die Transducer-Antwort verwendet die gemessenen Daten des
+Doppler-I2-10P13F25-H-Prüfkopfs: 25,40 mm Fokus, 9,97 MHz Mittenfrequenz,
+11,29 MHz Peak-Frequenz und 108,22 % relative -6-dB-Bandbreite im
+Pulse-Echo-Betrieb. Diese Zweiwegantwort wird einmal angewendet; sie wird
+nicht fälschlich als Einwegantwort beim Senden und Empfangen quadriert.
+
+Der Plot markiert Wasser-PP, PP-DMSO und DMSO-Luft separat. Die
+frequenzabhängige PP-Plattenantwort enthält weiterhin ihre internen
+Mehrfachreflexionen. Alle Empfangssignale bleiben ohne elektrische und
+akustische Kalibration normiert.
+
+Konzentration, Füllhöhe und Temperatur können für einen Vergleich geändert
+werden:
+
+```bash
+python examples/pulse_echo_80pct_dmso.py \
+  --dmso-percent 73 \
+  --dmso-height-mm 4.22 \
+  --temperature-c 22
+```
+
+Eine Survey-JSON-Datei kann ausschließlich als separat normierte
+Timing-/Pulsformreferenz eingeblendet werden:
+
+```bash
+python examples/pulse_echo_80pct_dmso.py \
+  --dmso-percent 73 \
+  --survey-json /pfad/zur/survey.json
+```
+
+Dabei werden ADC-Werte nicht als Druck oder Intensität interpretiert.
+`FluidMaterial`, Temperatur und eine lediglich aus der Laufzeit berechnete
+Füllhöhe werden nicht zur Materialkalibration verwendet. Die Rohdatei wird
+weder kopiert noch in die Ergebnisdateien eingebettet.
+
+Für eine ideal auf den Meniskus nachgeführte Fokussierung kann die
+Vorwärtsintensität direkt unter der DMSO-Luft-Grenze über eine Füllhöhe von
+2 bis 3 mm ausgewertet werden:
+
+```bash
+python examples/meniscus_intensity_sweep.py
+```
+
+Das Beispiel stellt die kohärente Rechnung mit allen Reflexionen einer
+Einweg-Referenz ohne DMSO-Kavitätsreflexion gegenüber. So bleibt der
+Interferenzeffekt getrennt von der Fokusverschiebung sichtbar.
+
 ## Wichtige, noch zu messende Parameter
 
 Aus dem Chat ist nur die longitudinale PP-Geschwindigkeit gemessen. Deshalb

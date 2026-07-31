@@ -18,6 +18,24 @@
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
             "justMyCode": true
+        },
+        {
+            "name": "ASM: Pulse-Echo 80 % DMSO",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/examples/pulse_echo_80pct_dmso.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "justMyCode": true
+        },
+        {
+            "name": "ASM: Meniskus-Intensität 2–3 mm",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/examples/meniscus_intensity_sweep.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "justMyCode": true
         }
     ]
 }
