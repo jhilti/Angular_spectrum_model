@@ -24,8 +24,10 @@ from angular_spectrum import (
     ElasticSolid,
     Fluid,
     FocusedCircularAperture,
+    apply_reference_transfer,
     asymmetric_gaussian_response,
     dmso_water_properties,
+    estimate_reference_transfer,
     interpret_survey_geometry,
     load_survey_pulse_echo,
     simulate_monostatic_pulse_echo,
@@ -234,6 +236,38 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--pp-alpha-l-db-m",
+        type=float,
+        default=0.0,
+        help="PP longitudinal amplitude attenuation at 10 MHz in dB/m",
+    )
+    parser.add_argument(
+        "--pp-alpha-s-db-m",
+        type=float,
+        default=0.0,
+        help="PP shear amplitude attenuation at 10 MHz in dB/m",
+    )
+    parser.add_argument(
+        "--fluid-alpha-db-m",
+        type=float,
+        default=0.0,
+        help="fluid amplitude attenuation at 10 MHz in dB/m",
+    )
+    parser.add_argument(
+        "--attenuation-power",
+        type=float,
+        default=1.0,
+        help="frequency power-law exponent shared by the attenuation inputs",
+    )
+    parser.add_argument(
+        "--no-reference-calibration",
+        action="store_true",
+        help=(
+            "disable the regularized complex system-response correction "
+            "derived only from the water-PP echo"
+        ),
+    )
+    parser.add_argument(
         "--output-directory",
         type=Path,
         default=DEFAULT_OUTPUT_DIRECTORY,
@@ -251,6 +285,14 @@ def main() -> None:
         raise ValueError("--dmso-percent must lie between 0 and 100")
     if args.known_water_path_mm is not None and args.known_water_path_mm <= 0.0:
         raise ValueError("--known-water-path-mm must be > 0")
+    for name, value in {
+        "--pp-alpha-l-db-m": args.pp_alpha_l_db_m,
+        "--pp-alpha-s-db-m": args.pp_alpha_s_db_m,
+        "--fluid-alpha-db-m": args.fluid_alpha_db_m,
+        "--attenuation-power": args.attenuation_power,
+    }.items():
+        if not np.isfinite(value) or value < 0.0:
+            raise ValueError(f"{name} must be finite and >= 0")
 
     survey = load_survey_pulse_echo(args.survey_json)
     dmso_properties = dmso_water_properties(
@@ -290,6 +332,9 @@ def main() -> None:
         f"assumed_{args.dmso_percent:g}volpct_DMSO",
         dmso_properties.density_kg_m3,
         dmso_properties.sound_speed_m_s,
+        attenuation_db_per_m=args.fluid_alpha_db_m,
+        attenuation_power=args.attenuation_power,
+        attenuation_reference_hz=DRIVE_FREQUENCY_HZ,
     )
     air = Fluid("air", 1.196, 344.0)
     polypropylene = ElasticSolid.from_longitudinal_speed_and_poisson(
@@ -297,6 +342,10 @@ def main() -> None:
         density_kg_m3=PP_DENSITY_KG_M3,
         longitudinal_speed_m_s=PP_LONGITUDINAL_SPEED_M_S,
         poisson_ratio=PP_POISSON_RATIO,
+        longitudinal_attenuation_db_per_m=args.pp_alpha_l_db_m,
+        shear_attenuation_db_per_m=args.pp_alpha_s_db_m,
+        attenuation_power=args.attenuation_power,
+        attenuation_reference_hz=DRIVE_FREQUENCY_HZ,
     )
     model = AngularSpectrumModel(
         grid=CartesianGrid(nx=320, ny=320, dx_m=50e-6),
@@ -364,14 +413,49 @@ def main() -> None:
         "fluid_top": simulated_fluid_top_s,
     }
 
-    simulated_scale = max(
+    simulated_uncalibrated_scale = max(
         float(np.max(np.abs(simulated.received_signal))),
         1e-30,
     )
-    simulated_normalized = simulated.received_signal / simulated_scale
+    simulated_uncalibrated = (
+        simulated.received_signal / simulated_uncalibrated_scale
+    )
+    reference_calibration = None
+    calibrated_signal = simulated_uncalibrated
+    if not args.no_reference_calibration:
+        try:
+            reference_calibration = estimate_reference_transfer(
+                survey.time_s,
+                survey.normalized_signal,
+                simulated.time_s,
+                simulated_uncalibrated,
+                measured_arrival_s=survey.water_pp_time_s,
+                simulated_arrival_s=simulated_water_pp_s,
+                target_time_s=simulated.time_s,
+            )
+            calibrated_signal = apply_reference_transfer(
+                simulated.time_s,
+                simulated_uncalibrated,
+                reference_calibration,
+            )
+        except ValueError as exc:
+            print(f"Reference calibration skipped: {exc}")
+    calibrated_scale = max(float(np.max(np.abs(calibrated_signal))), 1e-30)
+    simulated_normalized = calibrated_signal / calibrated_scale
     simulated_relative_s = simulated.time_s - simulated_water_pp_s
     measured_relative_s = survey.relative_time_s
 
+    uncalibrated_matches = {
+        name: echo_match(
+            survey.time_s,
+            survey.normalized_signal,
+            simulated.time_s,
+            simulated_uncalibrated,
+            measured_arrival_s=measured_arrivals[name],
+            simulated_arrival_s=simulated_arrivals[name],
+        )
+        for name in measured_arrivals
+    }
     matches = {
         name: echo_match(
             survey.time_s,
@@ -385,8 +469,15 @@ def main() -> None:
     }
 
     measured_envelope = analytic_envelope(survey.normalized_signal)
+    simulated_uncalibrated_envelope = analytic_envelope(
+        simulated_uncalibrated
+    )
     simulated_envelope = analytic_envelope(simulated_normalized)
     measured_envelope /= max(float(np.max(measured_envelope)), 1e-30)
+    simulated_uncalibrated_envelope /= max(
+        float(np.max(simulated_uncalibrated_envelope)),
+        1e-30,
+    )
     simulated_envelope /= max(float(np.max(simulated_envelope)), 1e-30)
     measured_peak_ratios = {
         name: window_envelope_peak(
@@ -397,6 +488,15 @@ def main() -> None:
         )
         for name, arrival_s in measured_arrivals.items()
     }
+    simulated_uncalibrated_peak_ratios = {
+        name: window_envelope_peak(
+            simulated.time_s,
+            simulated_uncalibrated_envelope,
+            arrival_s,
+            0.30e-6,
+        )
+        for name, arrival_s in simulated_arrivals.items()
+    }
     simulated_peak_ratios = {
         name: window_envelope_peak(
             simulated.time_s,
@@ -405,6 +505,22 @@ def main() -> None:
             0.30e-6,
         )
         for name, arrival_s in simulated_arrivals.items()
+    }
+    def relative_echo_levels_db(peaks: dict[str, float]) -> dict[str, float]:
+        reference = max(peaks["water_pp"], 1e-30)
+        return {
+            name: 20.0 * np.log10(max(value, 1e-30) / reference)
+            for name, value in peaks.items()
+        }
+
+    measured_levels_db = relative_echo_levels_db(measured_peak_ratios)
+    simulated_uncalibrated_levels_db = relative_echo_levels_db(
+        simulated_uncalibrated_peak_ratios
+    )
+    simulated_levels_db = relative_echo_levels_db(simulated_peak_ratios)
+    relative_level_residual_db = {
+        name: simulated_levels_db[name] - measured_levels_db[name]
+        for name in measured_levels_db
     }
     spectra = {
         name: {
@@ -416,6 +532,11 @@ def main() -> None:
             "simulated": gated_spectrum(
                 simulated.time_s,
                 simulated_normalized,
+                arrival_s=simulated_arrivals[name],
+            ),
+            "simulated_uncalibrated": gated_spectrum(
+                simulated.time_s,
+                simulated_uncalibrated,
                 arrival_s=simulated_arrivals[name],
             ),
         }
@@ -445,11 +566,24 @@ def main() -> None:
     )
     full_axis.plot(
         simulated_relative_s * 1e6,
+        simulated_uncalibrated,
+        color="#8aa0a5",
+        linewidth=0.75,
+        linestyle="--",
+        alpha=0.58,
+        label="ASM-Simulation, unkalibriert",
+    )
+    full_axis.plot(
+        simulated_relative_s * 1e6,
         simulated_normalized,
         color="#355f8a",
-        linewidth=0.85,
-        alpha=0.9,
-        label="ASM-Simulation, normiert",
+        linewidth=0.95,
+        alpha=0.94,
+        label=(
+            "ASM-Simulation, Wasser–PP-referenziert"
+            if reference_calibration is not None
+            else "ASM-Simulation, normiert"
+        ),
     )
     full_axis.plot(
         measured_relative_s * 1e6,
@@ -526,10 +660,23 @@ def main() -> None:
         )
         axis.plot(
             local_time_us,
+            np.asarray(uncalibrated_matches[name]["simulated_normalized"]),
+            color="#8aa0a5",
+            linewidth=0.85,
+            linestyle="--",
+            alpha=0.7,
+            label="Simulation, roh",
+        )
+        axis.plot(
+            local_time_us,
             np.asarray(match["simulated_normalized"]),
             color="#355f8a",
             linewidth=1.0,
-            label="Simulation, bestverschoben",
+            label=(
+                "Simulation, referenziert"
+                if reference_calibration is not None
+                else "Simulation"
+            ),
         )
         axis.axvline(0.0, color="0.55", linestyle="--", linewidth=0.9)
         axis.set(
@@ -539,7 +686,9 @@ def main() -> None:
             ylabel="lokal normiert",
             title=(
                 f"{display_names[name]}\n"
-                f"Korrelation {float(match['correlation']):.3f}, "
+                f"Korrelation "
+                f"{float(uncalibrated_matches[name]['correlation']):.3f}→"
+                f"{float(match['correlation']):.3f}, "
                 f"Shift {float(match['best_lag_s']) * 1e9:+.0f} ns"
             ),
         )
@@ -570,6 +719,9 @@ def main() -> None:
     ):
         measured_spectrum = spectra[name]["measured"]
         simulated_spectrum = spectra[name]["simulated"]
+        simulated_uncalibrated_spectrum = spectra[name][
+            "simulated_uncalibrated"
+        ]
         axis.plot(
             np.asarray(measured_spectrum["frequency_hz"]) * 1e-6,
             np.asarray(measured_spectrum["magnitude_db"]),
@@ -577,10 +729,23 @@ def main() -> None:
             label="Survey",
         )
         axis.plot(
+            np.asarray(simulated_uncalibrated_spectrum["frequency_hz"])
+            * 1e-6,
+            np.asarray(simulated_uncalibrated_spectrum["magnitude_db"]),
+            color="#8aa0a5",
+            linestyle="--",
+            alpha=0.72,
+            label="Simulation, roh",
+        )
+        axis.plot(
             np.asarray(simulated_spectrum["frequency_hz"]) * 1e-6,
             np.asarray(simulated_spectrum["magnitude_db"]),
             color="#355f8a",
-            label="Simulation",
+            label=(
+                "Simulation, referenziert"
+                if reference_calibration is not None
+                else "Simulation"
+            ),
         )
         axis.axhline(-6.0, color="0.6", linestyle="--", linewidth=0.9)
         axis.set(
@@ -625,6 +790,14 @@ def main() -> None:
             "density_kg_m3": dmso_properties.density_kg_m3,
             "metadata_supports_hypothesis": False,
         },
+        "material_attenuation": {
+            "reference_frequency_hz": DRIVE_FREQUENCY_HZ,
+            "pp_longitudinal_db_per_m": args.pp_alpha_l_db_m,
+            "pp_shear_db_per_m": args.pp_alpha_s_db_m,
+            "fluid_db_per_m": args.fluid_alpha_db_m,
+            "frequency_power": args.attenuation_power,
+            "values_are_user_inputs_not_fitted": True,
+        },
         "geometry": {
             "stored": {
                 "probe_to_plate_m": geometry.stored_probe_to_plate_m,
@@ -656,6 +829,50 @@ def main() -> None:
         },
         "comparison": {
             "signals_normalized_independently": True,
+            "water_pp_reference_calibration": {
+                "requested": not args.no_reference_calibration,
+                "applied": reference_calibration is not None,
+                "absolute_gain_calibrated": False,
+                "echoes_used": ["water_pp"],
+                "gate_start_s": (
+                    None
+                    if reference_calibration is None
+                    else reference_calibration.gate_start_s
+                ),
+                "gate_end_s": (
+                    None
+                    if reference_calibration is None
+                    else reference_calibration.gate_end_s
+                ),
+                "minimum_frequency_hz": (
+                    None
+                    if reference_calibration is None
+                    else reference_calibration.minimum_frequency_hz
+                ),
+                "maximum_frequency_hz": (
+                    None
+                    if reference_calibration is None
+                    else reference_calibration.maximum_frequency_hz
+                ),
+                "regularization": (
+                    None
+                    if reference_calibration is None
+                    else reference_calibration.regularization
+                ),
+                "maximum_correction_db": (
+                    None
+                    if reference_calibration is None
+                    else reference_calibration.maximum_correction_db
+                ),
+            },
+            "echo_shape_uncalibrated": {
+                name: {
+                    "best_lag_s": float(match["best_lag_s"]),
+                    "correlation": float(match["correlation"]),
+                    "normalized_rms": float(match["normalized_rms"]),
+                }
+                for name, match in uncalibrated_matches.items()
+            },
             "echo_shape": {
                 name: {
                     "best_lag_s": float(match["best_lag_s"]),
@@ -665,7 +882,20 @@ def main() -> None:
                 for name, match in matches.items()
             },
             "measured_envelope_peak_ratios": measured_peak_ratios,
+            "simulated_uncalibrated_envelope_peak_ratios": (
+                simulated_uncalibrated_peak_ratios
+            ),
             "simulated_envelope_peak_ratios": simulated_peak_ratios,
+            "relative_echo_levels_db_re_water_pp": {
+                "measured": measured_levels_db,
+                "simulated_uncalibrated": simulated_uncalibrated_levels_db,
+                "simulated": simulated_levels_db,
+                "simulation_minus_measurement": relative_level_residual_db,
+                "interpretation": (
+                    "diagnostic only; do not assign these residuals to one "
+                    "material without independent attenuation measurements"
+                ),
+            },
             "echo_spectra": {
                 name: {
                     source: {
@@ -683,8 +913,12 @@ def main() -> None:
             "temperature is not stored",
             "stored distances are TOF-derived, not independent measurements",
             "absolute ADC-to-pressure calibration is unavailable",
-            "certificate phase response and analogue electronics are unavailable",
-            "PP and fluid attenuation are not calibrated",
+            (
+                "the optional water-PP reference correction is empirical and "
+                "common to all echoes"
+            ),
+            "PP and fluid attenuation remain user inputs, not fitted values",
+            "meniscus curvature and tilt are not included",
         ],
     }
     with summary_path.open("w", encoding="utf-8") as handle:
@@ -694,9 +928,23 @@ def main() -> None:
         measured_time_relative_s=measured_relative_s,
         measured_signal_normalized=survey.normalized_signal,
         simulated_time_relative_s=simulated_relative_s,
+        simulated_signal_uncalibrated_normalized=simulated_uncalibrated,
         simulated_signal_normalized=simulated_normalized,
         measured_envelope_normalized=measured_envelope,
+        simulated_envelope_uncalibrated_normalized=(
+            simulated_uncalibrated_envelope
+        ),
         simulated_envelope_normalized=simulated_envelope,
+        reference_calibration_frequency_hz=(
+            np.array([], dtype=float)
+            if reference_calibration is None
+            else reference_calibration.frequency_hz
+        ),
+        reference_calibration_response=(
+            np.array([], dtype=np.complex128)
+            if reference_calibration is None
+            else reference_calibration.response
+        ),
     )
 
     print(
@@ -729,9 +977,18 @@ def main() -> None:
         )
     for name, match in matches.items():
         print(
-            f"{name}: correlation={float(match['correlation']):.4f}, "
+            f"{name}: correlation "
+            f"{float(uncalibrated_matches[name]['correlation']):.4f} -> "
+            f"{float(match['correlation']):.4f}, "
             f"best shift={float(match['best_lag_s']) * 1e9:+.1f} ns"
         )
+    print(
+        "Relative echo-level residuals, simulation - measurement [dB]:",
+        ", ".join(
+            f"{name}={value:+.2f}"
+            for name, value in relative_level_residual_db.items()
+        ),
+    )
     print(f"Plot: {figure_path.resolve()}")
     print(f"Spectrum plot: {spectrum_figure_path.resolve()}")
     print(f"Summary: {summary_path.resolve()}")

@@ -164,6 +164,18 @@ temperature, and a fill height calculated only from time of flight are not
 used to calibrate the material properties. The raw file is neither copied nor
 embedded in the result files.
 
+When a survey is loaded, the web interface can optionally derive a bounded,
+regularized complex response from the measured water–PP echo. This in-situ
+reference represents the common pulser, transducer, receiver, and ADC waveform
+response and is applied equally to every displayed simulated echo. It does not
+change geometry or focus, and it does not convert ADC counts into pressure.
+
+The recommended geometry mode is **Survey TOF · keep manual water gap**. It
+preserves an independently measured probe-to-PP distance such as 25.3 mm while
+deriving PP thickness and fluid height only from differences between the three
+echo markers. **Survey metadata · all distances** is available for diagnostics,
+but it also adopts the stored TOF-derived water distance.
+
 A separate comparison tool provides a detailed analysis of JSON timestamps,
 locally normalized echo shapes, and spectra:
 
@@ -173,6 +185,28 @@ python examples/survey_json_comparison.py /path/to/survey.json \
   --temperature-c 22 \
   --known-water-path-mm 25.3
 ```
+
+The detailed comparison enables the same water–PP reference correction by
+default and reports waveform correlations before and after correction. Use
+`--no-reference-calibration` to inspect the uncorrected certificate-based
+simulation. Raw and corrected traces are both retained in the private NPZ
+output.
+
+Measured material losses can be supplied without changing the reference
+calibration:
+
+```bash
+python examples/survey_json_comparison.py /path/to/survey.json \
+  --dmso-percent 73 \
+  --known-water-path-mm 25.3 \
+  --pp-alpha-l-db-m 2500 \
+  --pp-alpha-s-db-m 4000 \
+  --fluid-alpha-db-m 150 \
+  --attenuation-power 1.0
+```
+
+These values are amplitude losses in dB/m at 10 MHz. They remain explicit user
+inputs and are never silently fitted from uncertain survey metadata.
 
 The script reports both the stored distances and the time-of-flight-equivalent
 distances calculated from the echo spacing for the selected fluid. This makes

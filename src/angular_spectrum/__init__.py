@@ -1,5 +1,10 @@
 """Fluid–elastic-solid–fluid angular-spectrum ultrasound model."""
 
+from .calibration import (
+    ReferenceTransferCalibration,
+    apply_reference_transfer,
+    estimate_reference_transfer,
+)
 from .analysis import fwhm
 from .grid import CartesianGrid
 from .materials import ElasticSolid, Fluid, ElasticPlate
@@ -48,12 +53,15 @@ __all__ = [
     "MeniscusSweepResult",
     "PulseEchoResult",
     "PulseResult",
+    "ReferenceTransferCalibration",
     "SurveyGeometryInterpretation",
     "SurveyPulseEcho",
+    "apply_reference_transfer",
     "asymmetric_gaussian_response",
     "elastic_plate_scattering",
     "elastic_plate_scattering_map",
     "elastic_plate_transfer_map",
+    "estimate_reference_transfer",
     "dmso_concentration_to_mole_fraction",
     "dmso_water_properties",
     "fluid_interface_scattering",

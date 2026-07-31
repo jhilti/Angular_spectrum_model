@@ -76,6 +76,10 @@ class SimulationInputs:
     excitation_cycles: float = 1.0
     transducer_diameter_mm: float = 13.0
     transducer_focal_length_mm: float = 25.4
+    pp_longitudinal_attenuation_db_per_m: float = 0.0
+    pp_shear_attenuation_db_per_m: float = 0.0
+    fluid_attenuation_db_per_m: float = 0.0
+    attenuation_power: float = 1.0
     numerical_preset: str = "Fast"
 
     def validate(self) -> None:
@@ -97,6 +101,17 @@ class SimulationInputs:
         for name, value in positive.items():
             if not np.isfinite(value) or value <= 0.0:
                 raise ValueError(f"{name} must be finite and > 0")
+        nonnegative = {
+            "PP longitudinal attenuation": (
+                self.pp_longitudinal_attenuation_db_per_m
+            ),
+            "PP shear attenuation": self.pp_shear_attenuation_db_per_m,
+            "fluid attenuation": self.fluid_attenuation_db_per_m,
+            "attenuation power": self.attenuation_power,
+        }
+        for name, value in nonnegative.items():
+            if not np.isfinite(value) or value < 0.0:
+                raise ValueError(f"{name} must be finite and >= 0")
         if self.numerical_preset not in NUMERICAL_PRESETS:
             raise ValueError(
                 f"numerical preset must be one of {tuple(NUMERICAL_PRESETS)}"
@@ -237,6 +252,9 @@ def _build_model(
         f"{inputs.dmso_volume_percent:g}volpct_DMSO",
         dmso_properties.density_kg_m3,
         dmso_properties.sound_speed_m_s,
+        attenuation_db_per_m=inputs.fluid_attenuation_db_per_m,
+        attenuation_power=inputs.attenuation_power,
+        attenuation_reference_hz=10.0e6,
     )
     air = Fluid("air", 1.196, 344.0)
     polypropylene = ElasticSolid.from_longitudinal_speed_and_poisson(
@@ -244,6 +262,12 @@ def _build_model(
         density_kg_m3=PP_DENSITY_KG_M3,
         longitudinal_speed_m_s=PP_LONGITUDINAL_SPEED_M_S,
         poisson_ratio=PP_POISSON_RATIO,
+        longitudinal_attenuation_db_per_m=(
+            inputs.pp_longitudinal_attenuation_db_per_m
+        ),
+        shear_attenuation_db_per_m=inputs.pp_shear_attenuation_db_per_m,
+        attenuation_power=inputs.attenuation_power,
+        attenuation_reference_hz=10.0e6,
     )
     model = AngularSpectrumModel(
         grid=CartesianGrid(

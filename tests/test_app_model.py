@@ -12,6 +12,16 @@ from angular_spectrum.app_model import (
 
 
 class InteractiveAppModelTests(unittest.TestCase):
+    def test_material_attenuation_inputs_are_validated(self) -> None:
+        SimulationInputs(
+            pp_longitudinal_attenuation_db_per_m=2500.0,
+            pp_shear_attenuation_db_per_m=4000.0,
+            fluid_attenuation_db_per_m=150.0,
+            attenuation_power=1.2,
+        ).validate()
+        with self.assertRaisesRegex(ValueError, "fluid attenuation"):
+            SimulationInputs(fluid_attenuation_db_per_m=-1.0).validate()
+
     def test_interface_arrivals_are_strictly_ordered(self) -> None:
         inputs = SimulationInputs()
         arrivals = interface_arrivals(
