@@ -141,6 +141,86 @@ frequency-dependent PP plate response continues to include its internal
 multiple reflections. All received signals remain normalized unless the
 electrical and acoustic paths have been calibrated.
 
+## Optional voltage and tone-length model
+
+An optional electro-acoustic layer connects an open-circuit source-voltage
+waveform to the existing acoustic solver without changing its normalized
+defaults. It provides:
+
+- A Thevenin source with constant or frequency-dependent source impedance
+- Constant, measured, or fitted complex transducer impedance
+- A four-element Butterworth–Van Dyke impedance model
+- Separate complex transmit sensitivity in Pa/V and receive sensitivity in V/Pa
+- Receiver gain/filter response and optional ADC counts/V conversion
+- Terminal voltage, current, delivered energy, aperture pressure, received
+  voltage, and ADC waveform
+
+For each frequency bin, the connector voltage is calculated as
+
+\[
+V_T(f)=V_S(f)\frac{Z_T(f)}{Z_S(f)+Z_T(f)}.
+\]
+
+The calibrated pulse-echo chain is then
+
+\[
+V_R(f)=V_T(f)H_{TX}(f)H_{acoustic}(f)H_{RX}(f)H_{receiver}(f).
+\]
+
+Burst length is therefore evaluated from the actual waveform and system
+response; it is not approximated by multiplying a one-cycle peak.
+
+Run the voltage and tone-length sweep with:
+
+```bash
+python examples/electroacoustic_voltage_tone_sweep.py
+```
+
+The example uses the measured pulse-echo bandwidth as a zero-phase spectral
+shape, split equally between transmit and receive. Its default 50 Ω probe
+impedance and unit Pa/V and V/Pa sensitivities are placeholders, so every plot
+is labelled **provisional**. Supplying `--absolute-calibration` only changes
+that label; it should be used only after replacing all placeholder values with
+consistent measurements.
+
+The lower-level API is available independently of the web application:
+
+```python
+from angular_spectrum import (
+    ButterworthVanDyke,
+    ElectroAcousticCalibration,
+    simulate_electroacoustic_pulse_echo,
+)
+
+bvd = ButterworthVanDyke(
+    static_capacitance_f=100e-12,
+    motional_resistance_ohm=20.0,
+    motional_inductance_h=250e-9,
+    motional_capacitance_f=10e-12,
+)
+calibration = ElectroAcousticCalibration(
+    transmit_pressure_pa_per_v=measured_tx_response,
+    receive_voltage_v_per_pa=measured_rx_response,
+    receiver_response=measured_receiver_response,
+    adc_counts_per_v=measured_adc_counts_per_v,
+    absolute=True,
+)
+result = simulate_electroacoustic_pulse_echo(
+    model,
+    time_s,
+    open_circuit_source_voltage_v,
+    source_impedance_ohm=50.0,
+    transducer_impedance_ohm=bvd.impedance,
+    calibration=calibration,
+    fluid_layer_thickness_m=4.22e-3,
+    backing_fluid=air,
+)
+```
+
+The Streamlit application deliberately continues to use the normalized
+certificate-based response. The optional electrical model is not activated by
+existing web inputs, so published simulations retain their previous behavior.
+
 Concentration, fill height, and temperature can be changed for comparison:
 
 ```bash
@@ -317,6 +397,8 @@ Included:
 - Lossy media represented by complex wavenumbers
 - Optional band-limited ASM evaluation to reduce numerical wrap-around
 - Optional time-domain reconstruction of a broadband pulse
+- Optional Thevenin/BVD terminal model and calibrated Pa/V-to-V/Pa pulse-echo
+  wrapper
 
 Not included:
 
@@ -324,13 +406,14 @@ Not included:
 - Finite lateral dimensions or tilt of the PP plate
 - Surface roughness, adhesive layers, air bubbles, or additional layers
 - Nonlinearity at high acoustic pressures
-- An electromechanical transducer equivalent circuit
+- A probe-specific KLM or Mason stack derived from piezoelectric, matching-layer,
+  backing, lens, and housing material constants
 
 The source is a planar equivalent circular aperture with an exact spherical
 focusing phase. The default aperture pressure of 1 Pa therefore produces a
-relative focusing gain. For absolute hydrophone pressures,
-`pressure_amplitude_pa` or a measured complex voltage-to-pressure frequency
-response must be supplied.
+relative focusing gain. Absolute results require a measured complex
+voltage-to-pressure response, receive sensitivity, electrical loading,
+receiver gain, and—when ADC values are requested—the ADC voltage scale.
 
 ## Tests
 

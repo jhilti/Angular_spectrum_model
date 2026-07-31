@@ -13,6 +13,14 @@ from .dmso_mixture import (
     dmso_concentration_to_mole_fraction,
     dmso_water_properties,
 )
+from .electroacoustics import (
+    ButterworthVanDyke,
+    ElectricalDriveResult,
+    ElectroAcousticCalibration,
+    ElectroAcousticPulseEchoResult,
+    simulate_electroacoustic_pulse_echo,
+    solve_thevenin_drive,
+)
 from .model import AngularSpectrumModel, FocusedCircularAperture
 from .meniscus import MeniscusSweepResult, optimal_meniscus_intensity_sweep
 from .plate import (
@@ -44,10 +52,14 @@ from .survey import (
 
 __all__ = [
     "AngularSpectrumModel",
+    "ButterworthVanDyke",
     "CartesianGrid",
     "DMSOWaterProperties",
     "ElasticPlate",
     "ElasticSolid",
+    "ElectricalDriveResult",
+    "ElectroAcousticCalibration",
+    "ElectroAcousticPulseEchoResult",
     "Fluid",
     "FocusedCircularAperture",
     "MeniscusSweepResult",
@@ -74,6 +86,8 @@ __all__ = [
     "optimal_meniscus_intensity_sweep",
     "propagate_pulse_on_axis",
     "simulate_monostatic_pulse_echo",
+    "simulate_electroacoustic_pulse_echo",
     "sine_burst",
+    "solve_thevenin_drive",
     "square_burst",
 ]
