@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 from pathlib import Path
+from typing import Any, Mapping
 
 import numpy as np
 from numpy.typing import NDArray
@@ -72,12 +73,14 @@ def _positive_optional_m(value: object) -> float | None:
     return result
 
 
-def load_survey_pulse_echo(path: str | Path) -> SurveyPulseEcho:
-    """Load the first high-rate ``SurveyPingsSuper`` trace from JSON."""
+def parse_survey_pulse_echo(
+    document: Mapping[str, Any],
+) -> SurveyPulseEcho:
+    """Parse the first high-rate ``SurveyPingsSuper`` trace from a mapping.
 
-    source = Path(path)
-    with source.open("r", encoding="utf-8") as handle:
-        document = json.load(handle)
+    This in-memory entry point is useful for uploaded survey files: callers do
+    not need to persist raw ADC data to disk before interpreting it.
+    """
 
     super_pings = document.get("SurveyPingsSuper") or []
     if not super_pings:
@@ -150,6 +153,17 @@ def load_survey_pulse_echo(path: str | Path) -> SurveyPulseEcho:
         date_time=date_time,
         **interface_times_s,
     )
+
+
+def load_survey_pulse_echo(path: str | Path) -> SurveyPulseEcho:
+    """Load the first high-rate ``SurveyPingsSuper`` trace from JSON."""
+
+    source = Path(path)
+    with source.open("r", encoding="utf-8") as handle:
+        document = json.load(handle)
+    if not isinstance(document, Mapping):
+        raise ValueError("survey JSON root must be an object")
+    return parse_survey_pulse_echo(document)
 
 
 def interpret_survey_geometry(

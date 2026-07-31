@@ -55,6 +55,40 @@ python -m pip install -e .
 asm-pp-case
 ```
 
+## Interaktive Web-GUI
+
+`streamlit_app.py` stellt die wichtigsten Parameter als Eingabefelder bereit
+und verbindet drei Auswertungen in einer Oberfläche:
+
+- breitbandige Pulse-Echo-Antwort mit Wasser–PP, PP–DMSO und DMSO–Luft
+- qualitativer Overlay einer optional hochgeladenen Survey-JSON-Datei
+- aktuelle Fokuslage und Suche nach dem Wasserabstand, der die
+  Einweg-Intensität am Meniskus maximiert
+
+Die Oberfläche wird lokal so gestartet:
+
+```bash
+source .venv/bin/activate
+python -m pip install -e ".[app]"
+streamlit run streamlit_app.py
+```
+
+Danach öffnet sich die Anwendung im Browser. Ergebnisse können direkt als
+PNG, CSV und JSON heruntergeladen werden. Hochgeladene Survey-Daten werden
+nicht in das Repository oder in Ergebnisordner geschrieben. ADC-Werte bleiben
+separat normierte qualitative Signale.
+
+Für eine öffentliche Version kann dasselbe Repository über
+[Streamlit Community Cloud](https://share.streamlit.io/) bereitgestellt werden.
+Nach dem Verbinden des GitHub-Repositories werden der gewünschte Branch und
+`streamlit_app.py` als Startdatei ausgewählt. Änderungen an diesem Branch
+werden anschließend automatisch in die Web-App übernommen.
+
+Die Fokusoptimierung variiert den Wasserabstand und maximiert die
+monochromatische Einweg-Intensität am planaren Meniskus. Sie berücksichtigt
+die komplexe PP-Transmission und die DMSO-Schallgeschwindigkeit, hält aber
+Kavitätsinterferenz bewusst von der Fokusmetrik getrennt.
+
 Die Standardrechnung erzeugt im Ordner `results/`:
 
 - `axial_scan.png`: axialer Druck mit PP und eine Referenz ohne PP

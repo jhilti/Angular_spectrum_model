@@ -34,6 +34,7 @@ from .survey import (
     SurveyPulseEcho,
     interpret_survey_geometry,
     load_survey_pulse_echo,
+    parse_survey_pulse_echo,
 )
 
 __all__ = [
@@ -60,6 +61,7 @@ __all__ = [
     "gaussian_transducer_response",
     "interpret_survey_geometry",
     "load_survey_pulse_echo",
+    "parse_survey_pulse_echo",
     "normal_power_transmission",
     "optimal_meniscus_intensity_sweep",
     "propagate_pulse_on_axis",

@@ -8,15 +8,17 @@ import numpy as np
 from angular_spectrum import (
     interpret_survey_geometry,
     load_survey_pulse_echo,
+    parse_survey_pulse_echo,
 )
 
 
 class SurveyImportTests(unittest.TestCase):
-    def test_geometry_exposes_stored_sound_speed_assumptions(self) -> None:
+    @staticmethod
+    def _document() -> dict:
         sample_rate_hz = 20.0e6
         signal = np.zeros(200)
         signal[60:65] = [0.0, 1.0, -2.0, 1.0, 0.0]
-        document = {
+        return {
             "DateTime": "2026-01-01T00:00:00Z",
             "FluidMaterial": None,
             "SampleRangeAnalysisStartUSecs": 10.0,
@@ -35,6 +37,19 @@ class SurveyImportTests(unittest.TestCase):
                 }
             ],
         }
+
+    def test_in_memory_parser_matches_file_loader(self) -> None:
+        document = self._document()
+        parsed = parse_survey_pulse_echo(document)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "survey.json"
+            path.write_text(json.dumps(document), encoding="utf-8")
+            loaded = load_survey_pulse_echo(path)
+        self.assertTrue(np.array_equal(parsed.signal_adc, loaded.signal_adc))
+        self.assertEqual(parsed.sample_rate_hz, loaded.sample_rate_hz)
+
+    def test_geometry_exposes_stored_sound_speed_assumptions(self) -> None:
+        document = self._document()
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "survey.json"
             path.write_text(json.dumps(document), encoding="utf-8")
