@@ -33,12 +33,14 @@ from angular_spectrum.app_model import (
 
 
 COLORS = {
-    "ink": "#17252a",
-    "blue": "#236a7b",
-    "red": "#d65a4a",
-    "green": "#2a8c75",
-    "gold": "#d99b32",
-    "muted": "#6f7f83",
+    "ink": "#10282f",
+    "blue": "#147d88",
+    "red": "#d46352",
+    "green": "#16846f",
+    "gold": "#d49a35",
+    "muted": "#687d82",
+    "grid": "#dce7e4",
+    "paper": "#fbfcfb",
 }
 
 
@@ -51,31 +53,472 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-    :root { color-scheme: light; }
+    :root {
+        color-scheme: light;
+        --ink: #10282f;
+        --ink-soft: #40575d;
+        --teal: #147d88;
+        --teal-deep: #0e5963;
+        --mint: #dff0eb;
+        --paper: #fbfcfb;
+        --surface: #ffffff;
+        --surface-soft: #f1f6f4;
+        --line: #dce7e4;
+        --gold: #d49a35;
+        --shadow: 0 12px 35px rgba(16, 40, 47, .07);
+    }
+    html, body, [class*="css"] {
+        font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont,
+            "Segoe UI", sans-serif;
+    }
     .stApp {
         background:
-            radial-gradient(circle at 84% 4%, rgba(35,106,123,.09), transparent 24rem),
-            linear-gradient(180deg, #fbfcfa 0%, #f4f7f5 100%);
+            radial-gradient(circle at 88% 0%, rgba(20,125,136,.07), transparent 28rem),
+            linear-gradient(180deg, #fbfcfb 0%, #f5f8f7 100%);
+        color: var(--ink);
+    }
+    [data-testid="stHeader"] {
+        background: rgba(251, 252, 251, .82);
+        backdrop-filter: blur(14px);
+        border-bottom: 1px solid rgba(220, 231, 228, .72);
+    }
+    [data-testid="stMainBlockContainer"] {
+        max-width: 1320px;
+        padding-top: 2rem;
+        padding-bottom: 4rem;
     }
     [data-testid="stSidebar"] {
-        background: #eef3f1;
-        border-right: 1px solid #d9e4df;
+        background: #f0f5f3;
+        border-right: 1px solid var(--line);
     }
-    h1, h2, h3 { color: #17252a; letter-spacing: -.02em; }
-    div[data-testid="stMetric"] {
-        background: rgba(255,255,255,.84);
-        border: 1px solid #dbe5e1;
-        border-radius: .85rem;
-        padding: .85rem 1rem;
-        box-shadow: 0 5px 18px rgba(23,37,42,.045);
+    [data-testid="stSidebarContent"] {
+        padding-top: 1.35rem;
     }
-    div[data-testid="stMetricLabel"] { color: #516568; }
+    [data-testid="stSidebar"] [data-testid="stForm"] {
+        border: 0;
+        padding: 0;
+        background: transparent;
+    }
+    [data-testid="stSidebar"] hr {
+        border-color: var(--line);
+        margin: .85rem 0 1rem;
+    }
+    [data-testid="stSidebar"] label {
+        color: #314a50;
+        font-size: .82rem;
+        font-weight: 580;
+    }
+    [data-testid="stSidebar"] [data-baseweb="input"] > div,
+    [data-testid="stSidebar"] [data-baseweb="select"] > div {
+        background: rgba(255, 255, 255, .9);
+        border-color: #d2dfdc;
+        border-radius: .65rem;
+        min-height: 2.65rem;
+    }
+    [data-testid="stSidebar"] [data-baseweb="input"] > div:focus-within,
+    [data-testid="stSidebar"] [data-baseweb="select"] > div:focus-within {
+        border-color: var(--teal);
+        box-shadow: 0 0 0 2px rgba(20, 125, 136, .12);
+    }
+    [data-testid="stFileUploaderDropzone"] {
+        background: rgba(255, 255, 255, .7);
+        border: 1px dashed #b8cbc6;
+        border-radius: .8rem;
+        padding: .7rem;
+    }
+    [data-testid="stFileUploaderDropzone"]:hover {
+        border-color: var(--teal);
+        background: rgba(255, 255, 255, .95);
+    }
+    [data-testid="stSidebar"] .stButton > button,
+    [data-testid="stSidebar"] [data-testid="stFormSubmitButton"] > button {
+        border: 0;
+        border-radius: .7rem;
+        min-height: 2.9rem;
+        font-weight: 680;
+        letter-spacing: -.01em;
+        box-shadow: 0 8px 20px rgba(14, 89, 99, .18);
+        transition: transform .15s ease, box-shadow .15s ease;
+    }
+    [data-testid="stSidebar"] .stButton > button:hover,
+    [data-testid="stSidebar"] [data-testid="stFormSubmitButton"] > button:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 11px 24px rgba(14, 89, 99, .23);
+    }
+    h1, h2, h3 {
+        color: var(--ink);
+        letter-spacing: -.025em;
+    }
+    p, li {
+        color: var(--ink-soft);
+    }
+    a {
+        color: var(--teal-deep);
+    }
+    .app-hero {
+        position: relative;
+        overflow: hidden;
+        display: grid;
+        grid-template-columns: minmax(0, 1.55fr) minmax(250px, .75fr);
+        gap: 2.2rem;
+        align-items: center;
+        margin: .2rem 0 1.45rem;
+        padding: 2.2rem 2.35rem;
+        border: 1px solid rgba(255, 255, 255, .11);
+        border-radius: 1.35rem;
+        background:
+            radial-gradient(circle at 88% 22%, rgba(73, 190, 185, .22), transparent 18rem),
+            radial-gradient(circle at 70% 110%, rgba(212, 154, 53, .12), transparent 18rem),
+            linear-gradient(135deg, #0c2730 0%, #103d46 58%, #12515a 100%);
+        box-shadow: 0 22px 54px rgba(9, 35, 42, .18);
+    }
+    .app-hero::after {
+        content: "";
+        position: absolute;
+        width: 25rem;
+        height: 25rem;
+        right: -12rem;
+        top: -15rem;
+        border: 1px solid rgba(255, 255, 255, .12);
+        border-radius: 50%;
+        box-shadow:
+            0 0 0 2.7rem rgba(255, 255, 255, .025),
+            0 0 0 5.4rem rgba(255, 255, 255, .02);
+        pointer-events: none;
+    }
+    .hero-copy,
+    .layer-card {
+        position: relative;
+        z-index: 1;
+    }
+    .eyebrow {
+        margin-bottom: .7rem;
+        color: #8dd6cf;
+        font-size: .72rem;
+        font-weight: 750;
+        letter-spacing: .14em;
+        text-transform: uppercase;
+    }
+    .app-hero h1 {
+        max-width: 760px;
+        margin: 0 0 .8rem;
+        color: #ffffff;
+        font-size: clamp(2.15rem, 4vw, 3.45rem);
+        line-height: 1.02;
+        letter-spacing: -.055em;
+    }
+    .hero-copy > p {
+        max-width: 720px;
+        margin: 0;
+        color: rgba(232, 245, 242, .78);
+        font-size: 1rem;
+        line-height: 1.65;
+    }
+    .hero-tags {
+        display: flex;
+        flex-wrap: wrap;
+        gap: .5rem;
+        margin-top: 1.2rem;
+    }
+    .hero-tag {
+        padding: .38rem .64rem;
+        border: 1px solid rgba(187, 231, 224, .18);
+        border-radius: 999px;
+        background: rgba(255, 255, 255, .07);
+        color: #d9efeb;
+        font-size: .75rem;
+        font-weight: 600;
+    }
+    .layer-card {
+        padding: 1.15rem;
+        border: 1px solid rgba(220, 246, 241, .14);
+        border-radius: 1rem;
+        background: rgba(5, 27, 33, .32);
+        backdrop-filter: blur(6px);
+    }
+    .layer-card-label {
+        margin-bottom: .75rem;
+        color: rgba(218, 241, 237, .62);
+        font-size: .65rem;
+        font-weight: 700;
+        letter-spacing: .12em;
+        text-transform: uppercase;
+    }
+    .layer-flow {
+        display: grid;
+        grid-template-columns: 1fr auto 1fr auto 1.2fr auto .8fr;
+        align-items: center;
+        gap: .35rem;
+    }
+    .layer {
+        padding: .55rem .35rem;
+        border-radius: .55rem;
+        color: white;
+        font-size: .72rem;
+        font-weight: 700;
+        text-align: center;
+    }
+    .layer.water { background: rgba(61, 164, 183, .42); }
+    .layer.pp { background: rgba(212, 154, 53, .42); }
+    .layer.dmso { background: rgba(79, 174, 142, .42); }
+    .layer.air { background: rgba(255, 255, 255, .12); }
+    .layer-arrow { color: rgba(226, 245, 241, .45); font-size: .8rem; }
+    .hero-foot {
+        display: flex;
+        align-items: center;
+        gap: .5rem;
+        margin-top: .85rem;
+        color: rgba(220, 242, 238, .64);
+        font-size: .7rem;
+    }
+    .pulse-dot {
+        width: .45rem;
+        height: .45rem;
+        border-radius: 50%;
+        background: #62c5bb;
+        box-shadow: 0 0 0 .28rem rgba(98, 197, 187, .12);
+    }
+    .sidebar-brand {
+        display: flex;
+        align-items: center;
+        gap: .75rem;
+        margin: .2rem 0 1rem;
+    }
+    .sidebar-mark {
+        display: grid;
+        place-items: center;
+        width: 2.45rem;
+        height: 2.45rem;
+        border-radius: .78rem;
+        background: linear-gradient(145deg, #0f6c76, #15968d);
+        color: white;
+        font-size: 1rem;
+        box-shadow: 0 8px 18px rgba(20, 125, 136, .2);
+    }
+    .sidebar-brand strong {
+        display: block;
+        color: var(--ink);
+        font-size: .95rem;
+        letter-spacing: -.02em;
+    }
+    .sidebar-brand span {
+        display: block;
+        margin-top: .1rem;
+        color: #6d8084;
+        font-size: .69rem;
+    }
+    .sidebar-kicker {
+        margin: 1.15rem 0 .65rem;
+        color: #5d7479;
+        font-size: .66rem;
+        font-weight: 760;
+        letter-spacing: .13em;
+        text-transform: uppercase;
+    }
+    .survey-status {
+        margin: -.1rem 0 .85rem;
+        padding: .62rem .72rem;
+        border: 1px solid #cde1dc;
+        border-radius: .7rem;
+        background: rgba(223, 240, 235, .62);
+        color: #285c55;
+        font-size: .75rem;
+    }
+    .section-head {
+        display: flex;
+        align-items: end;
+        justify-content: space-between;
+        gap: 1.5rem;
+        margin: 1.65rem 0 .85rem;
+    }
+    .section-head .section-kicker {
+        margin-bottom: .28rem;
+        color: var(--teal);
+        font-size: .68rem;
+        font-weight: 760;
+        letter-spacing: .12em;
+        text-transform: uppercase;
+    }
+    .section-head h2 {
+        margin: 0;
+        font-size: 1.35rem;
+        letter-spacing: -.035em;
+    }
+    .section-head p {
+        max-width: 590px;
+        margin: 0;
+        color: #6a7c80;
+        font-size: .82rem;
+        line-height: 1.5;
+        text-align: right;
+    }
+    .metric-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: .8rem;
+        margin-bottom: .85rem;
+    }
+    .metric-card {
+        min-height: 8.1rem;
+        padding: 1.05rem 1.05rem .95rem;
+        border: 1px solid var(--line);
+        border-radius: 1rem;
+        background: rgba(255, 255, 255, .9);
+        box-shadow: 0 8px 26px rgba(16, 40, 47, .045);
+    }
+    .metric-label {
+        color: #667b80;
+        font-size: .7rem;
+        font-weight: 720;
+        letter-spacing: .075em;
+        text-transform: uppercase;
+    }
+    .metric-value {
+        margin-top: .72rem;
+        color: var(--ink);
+        font-size: clamp(1.2rem, 2vw, 1.65rem);
+        font-weight: 720;
+        letter-spacing: -.04em;
+        line-height: 1.05;
+    }
+    .metric-hint {
+        margin-top: .55rem;
+        color: #789096;
+        font-size: .72rem;
+        line-height: 1.35;
+    }
+    .metric-hint.positive { color: #167965; }
     .model-note {
+        display: flex;
+        align-items: flex-start;
+        gap: .75rem;
+        margin: .25rem 0 1rem;
         padding: .9rem 1rem;
-        border-left: 4px solid #236a7b;
-        background: rgba(255,255,255,.72);
-        border-radius: .25rem .7rem .7rem .25rem;
-        color: #405356;
+        border: 1px solid #d9e8e4;
+        border-radius: .85rem;
+        background: rgba(239, 247, 244, .8);
+        color: #405a60;
+        font-size: .82rem;
+        line-height: 1.5;
+    }
+    .model-note::before {
+        content: "i";
+        flex: 0 0 auto;
+        display: grid;
+        place-items: center;
+        width: 1.35rem;
+        height: 1.35rem;
+        margin-top: .05rem;
+        border-radius: 50%;
+        background: #d4eae5;
+        color: #146b65;
+        font-size: .72rem;
+        font-weight: 750;
+    }
+    .empty-state {
+        margin-top: 1rem;
+        padding: 2.25rem;
+        border: 1px dashed #c8d8d4;
+        border-radius: 1.1rem;
+        background: rgba(255, 255, 255, .7);
+        text-align: center;
+    }
+    .empty-mark {
+        display: grid;
+        place-items: center;
+        width: 3rem;
+        height: 3rem;
+        margin: 0 auto .9rem;
+        border-radius: 1rem;
+        background: #e2f0ec;
+        color: var(--teal-deep);
+        font-size: 1.2rem;
+    }
+    .empty-state h3 { margin: 0 0 .35rem; }
+    .empty-state p {
+        max-width: 480px;
+        margin: 0 auto;
+        color: #6a7d81;
+        font-size: .86rem;
+    }
+    [data-baseweb="tab-list"] {
+        gap: .3rem;
+        padding: .3rem;
+        border: 1px solid var(--line);
+        border-radius: .8rem;
+        background: #edf3f1;
+    }
+    [data-baseweb="tab"] {
+        height: 2.7rem;
+        padding: 0 1rem;
+        border-radius: .58rem;
+        color: #5c7378;
+        font-weight: 620;
+    }
+    [data-baseweb="tab"][aria-selected="true"] {
+        background: white;
+        color: var(--ink);
+        box-shadow: 0 3px 10px rgba(16, 40, 47, .07);
+    }
+    [data-baseweb="tab-highlight"] {
+        display: none;
+    }
+    div[data-testid="stPlotlyChart"],
+    div[data-testid="stImage"],
+    [data-testid="stDataFrame"],
+    [data-testid="stPyplot"] {
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: 1rem;
+        background: var(--surface);
+        box-shadow: 0 8px 28px rgba(16, 40, 47, .045);
+    }
+    [data-testid="stDataFrame"] {
+        margin-top: .25rem;
+    }
+    [data-testid="stAlert"] {
+        border-radius: .85rem;
+        border-width: 1px;
+    }
+    [data-testid="stDownloadButton"] > button {
+        min-height: 2.8rem;
+        border-color: #cbdad6;
+        border-radius: .7rem;
+        background: white;
+        color: #23474e;
+        font-weight: 620;
+    }
+    [data-testid="stDownloadButton"] > button:hover {
+        border-color: var(--teal);
+        color: var(--teal-deep);
+        background: #f6fbf9;
+    }
+    [data-testid="stExpander"] {
+        border-color: var(--line);
+        border-radius: .8rem;
+        background: rgba(255, 255, 255, .65);
+    }
+    .footer-note {
+        margin-top: 2rem;
+        padding-top: 1rem;
+        border-top: 1px solid var(--line);
+        color: #7b8d91;
+        font-size: .72rem;
+        text-align: center;
+    }
+    @media (max-width: 900px) {
+        .app-hero { grid-template-columns: 1fr; padding: 1.75rem; }
+        .layer-card { display: none; }
+        .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .section-head { display: block; }
+        .section-head p { margin-top: .35rem; text-align: left; }
+    }
+    @media (max-width: 540px) {
+        [data-testid="stMainBlockContainer"] { padding-top: 1rem; }
+        .app-hero { padding: 1.35rem; border-radius: 1rem; }
+        .app-hero h1 { font-size: 2rem; }
+        .metric-grid { grid-template-columns: 1fr; }
+        .metric-card { min-height: auto; }
     }
     </style>
     """,
@@ -97,6 +540,24 @@ def simulate_cached(inputs: SimulationInputs) -> InteractiveSimulationResult:
 
 def _optional_mm(value_m: float | None) -> str:
     return "not stored" if value_m is None else f"{value_m * 1e3:.3f} mm"
+
+
+def _style_axis(axis: plt.Axes) -> None:
+    axis.set_facecolor(COLORS["paper"])
+    axis.grid(
+        visible=True,
+        color=COLORS["grid"],
+        linewidth=0.7,
+        alpha=0.72,
+    )
+    axis.set_axisbelow(True)
+    axis.spines[["top", "right"]].set_visible(False)
+    axis.spines[["left", "bottom"]].set_color("#b9cbc7")
+    axis.tick_params(colors=COLORS["muted"], labelsize=9)
+    axis.xaxis.label.set_color(COLORS["muted"])
+    axis.yaxis.label.set_color(COLORS["muted"])
+    axis.title.set_color(COLORS["ink"])
+    axis.title.set_fontweight(600)
 
 
 def _used_geometry(
@@ -161,15 +622,16 @@ def pulse_figure(
     figure, axes = plt.subplots(
         2,
         1,
-        figsize=(11.5, 7.2),
+        figsize=(11.5, 6.8),
         sharex=True,
         constrained_layout=True,
     )
+    figure.patch.set_facecolor(COLORS["paper"])
     axes[0].plot(
         result.time_relative_us,
         result.received_normalized,
         color=COLORS["blue"],
-        linewidth=1.05,
+        linewidth=1.15,
         label="ASM simulation",
     )
     measured_relative_us = None
@@ -180,8 +642,8 @@ def pulse_figure(
             measured_relative_us,
             survey.normalized_signal,
             color=COLORS["ink"],
-            linewidth=0.8,
-            alpha=0.72,
+            linewidth=0.9,
+            alpha=0.68,
             label="Survey ADC (independently normalized)",
         )
         measured_envelope = analytic_envelope(survey.normalized_signal)
@@ -214,8 +676,20 @@ def pulse_figure(
 
     axes[0].set_ylabel("RF signal [relative]")
     axes[0].set_title("Received pulse echo at the transmitting aperture")
-    axes[0].legend(loc="upper right", ncols=2, fontsize=8.5)
+    axes[0].legend(
+        loc="upper right",
+        ncols=2,
+        fontsize=8.2,
+        frameon=False,
+    )
 
+    axes[1].fill_between(
+        result.time_relative_us,
+        0.0,
+        result.envelope_normalized,
+        color=COLORS["red"],
+        alpha=0.08,
+    )
     axes[1].plot(
         result.time_relative_us,
         result.envelope_normalized,
@@ -228,7 +702,7 @@ def pulse_figure(
         np.abs(result.plate_normalized),
         color=COLORS["blue"],
         linewidth=0.8,
-        alpha=0.5,
+        alpha=0.46,
         label="PP plate component",
     )
     axes[1].plot(
@@ -260,7 +734,12 @@ def pulse_figure(
         xlabel="Time relative to water–PP [µs]",
         ylabel="Envelope / component [relative]",
     )
-    axes[1].legend(loc="upper right", ncols=2, fontsize=8.5)
+    axes[1].legend(
+        loc="upper right",
+        ncols=2,
+        fontsize=8.2,
+        frameon=False,
+    )
 
     measured_last_arrival = 0.0
     if survey is not None:
@@ -273,8 +752,7 @@ def pulse_figure(
     )
     axes[1].set_xlim(-0.55, last_arrival + 2.0)
     for axis in axes:
-        axis.grid(alpha=0.2)
-        axis.spines[["top", "right"]].set_visible(False)
+        _style_axis(axis)
     return figure
 
 
@@ -284,6 +762,14 @@ def focus_figure(result: InteractiveSimulationResult) -> plt.Figure:
         2,
         figsize=(11.5, 4.5),
         constrained_layout=True,
+    )
+    figure.patch.set_facecolor(COLORS["paper"])
+    axes[0].fill_between(
+        result.axial_position_after_pp_mm,
+        0.0,
+        result.axial_intensity_normalized,
+        color=COLORS["blue"],
+        alpha=0.09,
     )
     axes[0].plot(
         result.axial_position_after_pp_mm,
@@ -308,8 +794,15 @@ def focus_figure(result: InteractiveSimulationResult) -> plt.Figure:
         ylabel="On-axis intensity [normalized]",
         title="Current axial focus",
     )
-    axes[0].legend()
+    axes[0].legend(frameon=False, fontsize=8.5)
 
+    axes[1].fill_between(
+        result.water_path_scan_mm,
+        0.0,
+        result.meniscus_intensity_normalized,
+        color=COLORS["green"],
+        alpha=0.09,
+    )
     axes[1].plot(
         result.water_path_scan_mm,
         result.meniscus_intensity_normalized,
@@ -333,15 +826,15 @@ def focus_figure(result: InteractiveSimulationResult) -> plt.Figure:
         ylabel="Intensity at meniscus [normalized]",
         title="Focus optimization at the meniscus",
     )
-    axes[1].legend()
+    axes[1].legend(frameon=False, fontsize=8.5)
     for axis in axes:
-        axis.grid(alpha=0.2)
-        axis.spines[["top", "right"]].set_visible(False)
+        _style_axis(axis)
     return figure
 
 
 def spectrum_figure(result: InteractiveSimulationResult) -> plt.Figure:
     figure, axis = plt.subplots(figsize=(9.5, 4.0), constrained_layout=True)
+    figure.patch.set_facecolor(COLORS["paper"])
     mask = (
         (result.frequency_mhz >= 1.0)
         & (result.frequency_mhz <= 24.0)
@@ -352,6 +845,13 @@ def spectrum_figure(result: InteractiveSimulationResult) -> plt.Figure:
         color=COLORS["blue"],
         linewidth=1.35,
     )
+    axis.fill_between(
+        result.frequency_mhz[mask],
+        -60.0,
+        result.received_spectrum_db[mask],
+        color=COLORS["blue"],
+        alpha=0.08,
+    )
     axis.axhline(-6.0, color=COLORS["muted"], linestyle="--", linewidth=1.0)
     axis.set(
         xlabel="Frequency [MHz]",
@@ -359,8 +859,7 @@ def spectrum_figure(result: InteractiveSimulationResult) -> plt.Figure:
         ylim=(-60.0, 2.0),
         title="Simulated received spectrum",
     )
-    axis.grid(alpha=0.2)
-    axis.spines[["top", "right"]].set_visible(False)
+    _style_axis(axis)
     return figure
 
 
@@ -469,17 +968,43 @@ def result_summary(
     }
 
 
-st.title("Pulse Echo Focus Lab")
-st.caption(
-    "Water → polypropylene → DMSO/water → air · broadband monostatic "
-    "angular-spectrum simulation"
-)
 st.markdown(
     """
+    <section class="app-hero">
+        <div class="hero-copy">
+            <div class="eyebrow">Ultrasound simulation workspace</div>
+            <h1>Pulse Echo<br>Focus Lab</h1>
+            <p>
+                Explore broadband echoes, layered-media timing, and focal
+                alignment in one focused acoustic workspace.
+            </p>
+            <div class="hero-tags">
+                <span class="hero-tag">10 MHz broadband</span>
+                <span class="hero-tag">Monostatic pulse echo</span>
+                <span class="hero-tag">Elastic PP plate</span>
+            </div>
+        </div>
+        <div class="layer-card">
+            <div class="layer-card-label">Acoustic path</div>
+            <div class="layer-flow">
+                <span class="layer water">H₂O</span>
+                <span class="layer-arrow">→</span>
+                <span class="layer pp">PP</span>
+                <span class="layer-arrow">→</span>
+                <span class="layer dmso">DMSO</span>
+                <span class="layer-arrow">→</span>
+                <span class="layer air">Air</span>
+            </div>
+            <div class="hero-foot">
+                <span class="pulse-dot"></span>
+                Angular-spectrum propagation with elastic plate response
+            </div>
+        </div>
+    </section>
     <div class="model-note">
-    Enter the known geometry, optionally upload a survey JSON, then run the
-    model. ADC amplitudes are displayed only as independently normalized,
-    qualitative traces.
+        Enter the known geometry, optionally add a survey JSON, and run the
+        model. ADC amplitudes are independently normalized and remain
+        qualitative.
     </div>
     """,
     unsafe_allow_html=True,
@@ -487,9 +1012,21 @@ st.markdown(
 
 survey: SurveyPulseEcho | None = None
 with st.sidebar:
-    st.header("Simulation inputs")
+    st.markdown(
+        """
+        <div class="sidebar-brand">
+            <div class="sidebar-mark">◉</div>
+            <div>
+                <strong>Simulation setup</strong>
+                <span>Configure the acoustic stack</span>
+            </div>
+        </div>
+        <div class="sidebar-kicker">Optional measurement</div>
+        """,
+        unsafe_allow_html=True,
+    )
     uploaded_file = st.file_uploader(
-        "Survey JSON (optional)",
+        "Survey JSON",
         type=["json"],
         help=(
             "The file is parsed in memory. Raw ADC data are not saved by the app."
@@ -503,6 +1040,13 @@ with st.sidebar:
                 survey = parse_uploaded_survey(uploaded_file.getvalue())
             except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
                 st.error(f"Could not read this survey: {exc}")
+    if survey is None:
+        st.caption("Optional · JSON · up to 10 MB · processed in memory")
+    else:
+        st.markdown(
+            '<div class="survey-status">Survey loaded · ready for overlay</div>',
+            unsafe_allow_html=True,
+        )
     survey_token = (
         None
         if survey is None or uploaded_file is None
@@ -528,8 +1072,12 @@ with st.sidebar:
             )
             st.write(f"Stored fluid label: {survey.fluid_material or 'missing'}")
 
+    st.divider()
     with st.form("simulation_form"):
-        st.subheader("Fluid")
+        st.markdown(
+            '<div class="sidebar-kicker">Fluid</div>',
+            unsafe_allow_html=True,
+        )
         dmso_percent = st.number_input(
             "DMSO [vol.%]",
             min_value=0.0,
@@ -552,7 +1100,10 @@ with st.sidebar:
             step=0.1,
         )
 
-        st.subheader("Geometry")
+        st.markdown(
+            '<div class="sidebar-kicker">Geometry</div>',
+            unsafe_allow_html=True,
+        )
         water_path_mm = st.number_input(
             "Water gap to PP [mm]",
             min_value=0.1,
@@ -578,7 +1129,10 @@ with st.sidebar:
             ),
         )
 
-        st.subheader("Transducer")
+        st.markdown(
+            '<div class="sidebar-kicker">Transducer</div>',
+            unsafe_allow_html=True,
+        )
         excitation_frequency_mhz = st.number_input(
             "Excitation frequency [MHz]",
             min_value=3.0,
@@ -655,31 +1209,75 @@ geometry_source = st.session_state.get(
 )
 
 if result is None:
-    st.info(
-        "Set the parameters in the left panel and press "
-        "“Simulate and optimize focus”."
+    st.markdown(
+        """
+        <div class="empty-state">
+            <div class="empty-mark">↗</div>
+            <h3>Ready for your first simulation</h3>
+            <p>
+                Review the parameters in the left panel, then select
+                <strong>Simulate and optimize focus</strong> to calculate the
+                echo response and focal alignment.
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
     st.stop()
 
-metric_columns = st.columns(4)
-metric_columns[0].metric(
-    "Focus after PP",
-    f"{result.focus_after_pp_mm:.3f} mm",
-)
 offset = result.focus_offset_from_meniscus_mm
 offset_label = "below" if offset < 0.0 else "above"
-metric_columns[1].metric(
-    "Focus relative to meniscus",
-    f"{abs(offset):.3f} mm {offset_label}",
+water_gap_delta = result.optimal_water_path_mm - result.inputs.water_path_mm
+st.markdown(
+    """
+    <div class="section-head">
+        <div>
+            <div class="section-kicker">Simulation overview</div>
+            <h2>Focal alignment at a glance</h2>
+        </div>
+        <p>
+            Results use the selected acoustic properties and a single-pass
+            meniscus focus criterion.
+        </p>
+    </div>
+    """,
+    unsafe_allow_html=True,
 )
-metric_columns[2].metric(
-    "Recommended water gap",
-    f"{result.optimal_water_path_mm:.3f} mm",
-    delta=f"{result.optimal_water_path_mm - result.inputs.water_path_mm:+.3f} mm",
-)
-metric_columns[3].metric(
-    "DMSO sound speed",
-    f"{result.dmso_properties.sound_speed_m_s:.1f} m/s",
+st.markdown(
+    f"""
+    <div class="metric-grid">
+        <div class="metric-card">
+            <div class="metric-label">Focus after PP</div>
+            <div class="metric-value">{result.focus_after_pp_mm:.3f} mm</div>
+            <div class="metric-hint">
+                {result.focus_from_aperture_mm:.3f} mm from aperture
+            </div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-label">Meniscus alignment</div>
+            <div class="metric-value">{abs(offset):.3f} mm</div>
+            <div class="metric-hint">{offset_label} the fluid surface</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-label">Recommended water gap</div>
+            <div class="metric-value">{result.optimal_water_path_mm:.3f} mm</div>
+            <div class="metric-hint positive">
+                Adjust current gap by {water_gap_delta:+.3f} mm
+            </div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-label">DMSO sound speed</div>
+            <div class="metric-value">
+                {result.dmso_properties.sound_speed_m_s:.1f} m/s
+            </div>
+            <div class="metric-hint">
+                {result.inputs.dmso_volume_percent:.0f} vol.% at
+                {result.inputs.temperature_c:.1f} °C
+            </div>
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
 )
 
 if result.focus_scan_boundary_limited:
@@ -688,20 +1286,51 @@ if result.focus_scan_boundary_limited:
         "The transducer is probably focused at or before the PP exit; the "
         "recommended water-gap search is the more useful focus result."
     )
-st.caption(
-    f"Geometry used: {geometry_source}. "
-    f"The predicted gain at the meniscus from moving to the recommended gap is "
-    f"{result.optimal_water_path_gain_db:.2f} dB. This is a single-pass focus "
-    "criterion, kept separate from DMSO–air cavity interference."
+st.markdown(
+    f"""
+    <div class="model-note">
+        Geometry: {geometry_source}. Moving to the recommended water gap gives
+        a predicted meniscus gain of
+        <strong>{result.optimal_water_path_gain_db:.2f} dB</strong>.
+        DMSO–air cavity interference is kept separate from this focus metric.
+    </div>
+    """,
+    unsafe_allow_html=True,
 )
 
 pulse_tab, focus_tab, data_tab = st.tabs(
-    ["Pulse response", "Focus optimization", "Spectrum & downloads"]
+    ["Pulse response", "Focus optimization", "Spectrum & exports"]
 )
 with pulse_tab:
+    st.markdown(
+        """
+        <div class="section-head">
+            <div>
+                <div class="section-kicker">Time domain</div>
+                <h2>Received pulse response</h2>
+            </div>
+            <p>
+                Compare the simulated RF signal, envelope, and individual
+                interface contributions.
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
     pulse_plot = pulse_figure(result, result_survey)
     st.pyplot(pulse_plot, width="stretch")
-    st.subheader("Interface timing")
+    st.markdown(
+        """
+        <div class="section-head">
+            <div>
+                <div class="section-kicker">Arrival markers</div>
+                <h2>Interface timing</h2>
+            </div>
+            <p>All times are referenced to the water–PP reflection.</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
     simulated_arrivals = result.arrivals.relative_to_water_pp_us
     measured_arrivals = (
         None
@@ -739,19 +1368,54 @@ with pulse_tab:
     )
 
 with focus_tab:
+    st.markdown(
+        """
+        <div class="section-head">
+            <div>
+                <div class="section-kicker">Spatial response</div>
+                <h2>Focus and water-gap optimization</h2>
+            </div>
+            <p>
+                Separate the current axial maximum from the water gap that
+                maximizes intensity at the meniscus.
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
     focus_plot = focus_figure(result)
     st.pyplot(focus_plot, width="stretch")
     st.markdown(
         f"""
-        The current on-axis maximum is **{result.focus_from_aperture_mm:.3f} mm
-        from the aperture**. To maximize the predicted single-pass intensity at
-        the {result.inputs.fluid_height_mm:.3f} mm meniscus, set the water gap
-        to **{result.optimal_water_path_mm:.3f} mm**. The search includes the
-        PP transmission phase and DMSO sound speed at the selected temperature.
-        """
+        <div class="model-note">
+            The current on-axis maximum is
+            <strong>{result.focus_from_aperture_mm:.3f} mm from the
+            aperture</strong>. For the {result.inputs.fluid_height_mm:.3f} mm
+            meniscus, set the water gap to
+            <strong>{result.optimal_water_path_mm:.3f} mm</strong>. The search
+            includes the PP transmission phase and temperature-dependent DMSO
+            sound speed.
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
 
 with data_tab:
+    st.markdown(
+        """
+        <div class="section-head">
+            <div>
+                <div class="section-kicker">Frequency domain</div>
+                <h2>Received spectrum</h2>
+            </div>
+            <p>
+                Inspect the normalized spectral response and export the
+                calculation for further analysis.
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
     spectral_plot = spectrum_figure(result)
     st.pyplot(spectral_plot, width="stretch")
     summary = result_summary(
@@ -784,3 +1448,13 @@ with data_tab:
     with st.expander("Model assumptions"):
         for assumption in summary["assumptions"]:
             st.write(f"• {assumption}")
+
+st.markdown(
+    """
+    <div class="footer-note">
+        Pulse Echo Focus Lab · Relative acoustic model · Survey ADC values are
+        not an absolute pressure calibration
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
