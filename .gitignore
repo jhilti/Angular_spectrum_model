@@ -6,3 +6,4 @@ __pycache__/
 .matplotlib/
 .DS_Store
 tmp/
+results/private/

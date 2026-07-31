@@ -29,6 +29,12 @@ from .pulse_echo import (
     simulate_monostatic_pulse_echo,
     sine_burst,
 )
+from .survey import (
+    SurveyGeometryInterpretation,
+    SurveyPulseEcho,
+    interpret_survey_geometry,
+    load_survey_pulse_echo,
+)
 
 __all__ = [
     "AngularSpectrumModel",
@@ -41,6 +47,8 @@ __all__ = [
     "MeniscusSweepResult",
     "PulseEchoResult",
     "PulseResult",
+    "SurveyGeometryInterpretation",
+    "SurveyPulseEcho",
     "asymmetric_gaussian_response",
     "elastic_plate_scattering",
     "elastic_plate_scattering_map",
@@ -50,6 +58,8 @@ __all__ = [
     "fluid_interface_scattering",
     "fwhm",
     "gaussian_transducer_response",
+    "interpret_survey_geometry",
+    "load_survey_pulse_echo",
     "normal_power_transmission",
     "optimal_meniscus_intensity_sweep",
     "propagate_pulse_on_axis",

@@ -118,6 +118,25 @@ Dabei werden ADC-Werte nicht als Druck oder Intensität interpretiert.
 Füllhöhe werden nicht zur Materialkalibration verwendet. Die Rohdatei wird
 weder kopiert noch in die Ergebnisdateien eingebettet.
 
+Für eine detaillierte Auswertung der JSON-Zeitmarken mit lokal normierten
+Echoformen und Spektren steht ein eigener Vergleich zur Verfügung:
+
+```bash
+python examples/survey_json_comparison.py /pfad/zur/survey.json \
+  --dmso-percent 73 \
+  --temperature-c 22 \
+  --known-water-path-mm 25.3
+```
+
+Das Skript berichtet sowohl die gespeicherten Distanzen als auch die für die
+gewählte Flüssigkeit aus den Echoabständen berechneten TOF-äquivalenten
+Distanzen. Dadurch wird sichtbar, wenn die JSON-Distanzen bereits mit einer
+fest angenommenen Schallgeschwindigkeit berechnet wurden. Die drei Echoformen
+werden separat zeitverschoben und normiert verglichen; Korrelation,
+Restverschiebung, lokales Spektrum und relative Hüllkurvenpeaks sind daher
+qualitative Diagnosegrößen, keine absolute Druckkalibration. Rohdatenbasierte
+Plots werden unter `results/private/` abgelegt und von Git ignoriert.
+
 Für eine ideal auf den Meniskus nachgeführte Fokussierung kann die
 Vorwärtsintensität direkt unter der DMSO-Luft-Grenze über eine Füllhöhe von
 2 bis 3 mm ausgewertet werden:
