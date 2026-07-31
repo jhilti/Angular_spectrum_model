@@ -1,52 +1,51 @@
-# Fluid–Elastic–Solid–Fluid Angular-Spectrum-Modell
+# Fluid–Elastic-Solid–Fluid Angular Spectrum Model
 
-Lokale Python-Implementierung für den im geteilten Chat beschriebenen Aufbau:
+A local Python implementation of the setup described in the shared chat:
 
-| Größe | Wert im Beispiel |
+| Parameter | Example value |
 |---|---:|
-| Mittenfrequenz | 10 MHz |
-| Transducer-Apertur | 13 mm |
-| geometrischer Fokus | 25 mm |
-| Temperatur | 22 °C |
-| Schichten | Wasser → PP → DMSO |
-| PP-Dicke | 0,78 mm |
-| gemessene longitudinale PP-Schallgeschwindigkeit | **2732 m/s** |
+| Center frequency | 10 MHz |
+| Transducer aperture | 13 mm |
+| Geometric focus | 25 mm |
+| Temperature | 22 °C |
+| Layers | Water → PP → DMSO |
+| PP thickness | 0.78 mm |
+| Measured longitudinal sound speed in PP | **2732 m/s** |
 
-Das Modell ist kein paraxiales Fresnel-Modell. Es propagiert jede FFT-Komponente
-mit
+This is not a paraxial Fresnel model. It propagates every FFT component using
 
 \[
 k_z = \sqrt{k^2-k_x^2-k_y^2}
 \]
 
-und löst an der PP-Platte für jede transversale Wellenzahl ein vollständiges
-Fluid–Festkörper–Fluid-Randwertproblem. Im isotropen PP werden vorwärts und
-rückwärts laufende Longitudinal- und SV-Wellen berücksichtigt. Dadurch sind
-Modenkonversion, winkelabhängige Transmission und sämtliche
-Mehrfachreflexionen in der Platte enthalten.
+and solves a complete fluid–solid–fluid boundary-value problem at the PP plate
+for every transverse wavenumber. Forward- and backward-propagating
+longitudinal and SV waves are included in the isotropic PP layer. The model
+therefore captures mode conversion, angle-dependent transmission, and all
+multiple reflections inside the plate.
 
-Die Vorgehensweise folgt dem etablierten Angular-Spectrum-Ansatz für
-geschichtete Medien ([Vecchio et al., 1994](https://pubmed.ncbi.nlm.nih.gov/7810021/))
-und der Potentialmethode für fluidgekoppelte elastische Platten
-([Almeida et al., 2023](https://arxiv.org/abs/2302.08826)). Der Einfluss des
-endlichen Winkelspektrums auf Plattenresonanzen ist experimentell und numerisch
-dokumentiert ([Aanes et al., 2016](https://arxiv.org/abs/1604.02258));
-eine verwandte offene ASM-Implementierung für einen Kolbenstrahler findet sich
-bei [Sæther, 2023](https://doi.org/10.1016/j.mex.2023.102037).
+The implementation follows the established angular spectrum approach for
+layered media ([Vecchio et al., 1994](https://pubmed.ncbi.nlm.nih.gov/7810021/))
+and the potential method for fluid-coupled elastic plates
+([Almeida et al., 2023](https://arxiv.org/abs/2302.08826)). The effect of a
+finite angular spectrum on plate resonances has been documented experimentally
+and numerically ([Aanes et al., 2016](https://arxiv.org/abs/1604.02258)). A
+related open ASM implementation for a piston transducer is available in
+[Sæther, 2023](https://doi.org/10.1016/j.mex.2023.102037).
 
-## Beispielergebnisse
+## Example results
 
-| Breitbandige Pulse-Echo-Antwort | Meniskus-Sweep von 2 bis 3 mm |
+| Broadband pulse-echo response | Meniscus sweep from 2 to 3 mm |
 |:---:|:---:|
-| [![Pulse-Echo-Antwort mit Wasser-PP, PP-DMSO und DMSO-Luft](results/pulse_echo_80pct_dmso.png)](results/pulse_echo_80pct_dmso.png) | [![Intensität am Meniskus über der DMSO-Füllhöhe](results/meniscus_intensity_sweep.png)](results/meniscus_intensity_sweep.png) |
-| **DMSO-Konzentration und Fokuslage** | **Frequenzabhängige PP-Transmission** |
-| [![Fokuslage für verschiedene DMSO-Konzentrationen](results/dmso_concentration_focus.png)](results/dmso_concentration_focus.png) | [![Transmission und Reflexion der PP-Platte über der Frequenz](results/transmission_vs_frequency.png)](results/transmission_vs_frequency.png) |
+| [![Pulse-echo response showing water–PP, PP–DMSO, and DMSO–air](results/pulse_echo_80pct_dmso.png)](results/pulse_echo_80pct_dmso.png) | [![Meniscus intensity versus DMSO fill height](results/meniscus_intensity_sweep.png)](results/meniscus_intensity_sweep.png) |
+| **DMSO concentration and focal position** | **Frequency-dependent PP transmission** |
+| [![Focal position for different DMSO concentrations](results/dmso_concentration_focus.png)](results/dmso_concentration_focus.png) | [![PP plate transmission and reflection versus frequency](results/transmission_vs_frequency.png)](results/transmission_vs_frequency.png) |
 
-Die Abbildungen sind anklickbar und öffnen die jeweilige PNG-Datei in voller
-Auflösung. Druck-, Empfangs- und Intensitätswerte sind ohne eine vollständige
-Transducer-/ADC-Kalibration relative Größen.
+Click any figure to open the full-resolution PNG. Pressure, receive-signal,
+and intensity values are relative quantities unless the complete
+transducer/ADC chain has been calibrated.
 
-## Schnellstart
+## Quick start
 
 ```bash
 python3 -m venv .venv
@@ -55,19 +54,19 @@ python -m pip install -e .
 asm-pp-case
 ```
 
-## Interaktive Web-GUI
+## Interactive web interface
 
-`streamlit_app.py` stellt die wichtigsten Parameter als Eingabefelder bereit
-und verbindet drei Auswertungen in einer Oberfläche:
+`streamlit_app.py` exposes the main parameters as input fields and combines
+three analyses in one interface:
 
-[**Pulse Echo Focus Lab im Browser öffnen**](https://angular-spectrum-model.streamlit.app/)
+[**Open Pulse Echo Focus Lab in your browser**](https://angular-spectrum-model.streamlit.app/)
 
-- breitbandige Pulse-Echo-Antwort mit Wasser–PP, PP–DMSO und DMSO–Luft
-- qualitativer Overlay einer optional hochgeladenen Survey-JSON-Datei
-- aktuelle Fokuslage und Suche nach dem Wasserabstand, der die
-  Einweg-Intensität am Meniskus maximiert
+- Broadband pulse-echo response with water–PP, PP–DMSO, and DMSO–air echoes
+- Qualitative overlay of an optional uploaded survey JSON file
+- Current focal position and a search for the water gap that maximizes
+  one-way intensity at the meniscus
 
-Die Oberfläche wird lokal so gestartet:
+Run the interface locally with:
 
 ```bash
 source .venv/bin/activate
@@ -75,75 +74,74 @@ python -m pip install -e ".[app]"
 streamlit run streamlit_app.py
 ```
 
-Danach öffnet sich die Anwendung im Browser. Ergebnisse können direkt als
-PNG, CSV und JSON heruntergeladen werden. Hochgeladene Survey-Daten werden
-nicht in das Repository oder in Ergebnisordner geschrieben. ADC-Werte bleiben
-separat normierte qualitative Signale.
+The application then opens in your browser. Results can be downloaded directly
+as PNG, CSV, and JSON files. Uploaded survey data is not written to the
+repository or any results directory. ADC traces remain independently
+normalized qualitative signals.
 
-Für eine öffentliche Version kann dasselbe Repository über
-[Streamlit Community Cloud](https://share.streamlit.io/) bereitgestellt werden.
-Nach dem Verbinden des GitHub-Repositories werden der gewünschte Branch und
-`streamlit_app.py` als Startdatei ausgewählt. Änderungen an diesem Branch
-werden anschließend automatisch in die Web-App übernommen.
+The same repository can be deployed publicly with
+[Streamlit Community Cloud](https://share.streamlit.io/). After connecting the
+GitHub repository, select the desired branch and `streamlit_app.py` as the
+entrypoint. Subsequent changes to that branch are automatically reflected in
+the web app.
 
-Die Fokusoptimierung variiert den Wasserabstand und maximiert die
-monochromatische Einweg-Intensität am planaren Meniskus. Sie berücksichtigt
-die komplexe PP-Transmission und die DMSO-Schallgeschwindigkeit, hält aber
-Kavitätsinterferenz bewusst von der Fokusmetrik getrennt.
+The focus optimization varies the water gap and maximizes the monochromatic
+one-way intensity at the planar meniscus. It includes the complex PP
+transmission and the DMSO sound speed, while deliberately keeping cavity
+interference separate from the focus metric.
 
-Die Standardrechnung erzeugt im Ordner `results/`:
+The default calculation creates the following files in `results/`:
 
-- `axial_scan.png`: axialer Druck mit PP und eine Referenz ohne PP
-- `focal_plane.png`: 2D-Druckfeld in der berechneten Fokalebene
-- `lateral_profile.png`: laterales -6-dB-Profil
-- `transmission_vs_angle.png`: winkelabhängige Reflexion und Transmission
-- `transmission_vs_frequency.png`: Plattenresonanzen
-- `monochromatic_results.npz`: komplexe Felder und Kurven
-- `summary.json`: Parameter, Fokuslage, FWHM und Plausibilitätswerte
+- `axial_scan.png`: axial pressure with PP and a reference without PP
+- `focal_plane.png`: 2D pressure field in the calculated focal plane
+- `lateral_profile.png`: lateral −6 dB profile
+- `transmission_vs_angle.png`: angle-dependent reflection and transmission
+- `transmission_vs_frequency.png`: plate resonances
+- `monochromatic_results.npz`: complex fields and curves
+- `summary.json`: parameters, focal position, FWHM, and plausibility metrics
 
-Eine breitbandige, vom Transducer bandpassgefilterte
-Drei-Zyklen-Rechteckanregung wird optional rekonstruiert:
+A broadband, transducer-bandpass-filtered, three-cycle rectangular excitation
+can optionally be reconstructed:
 
 ```bash
 asm-pp-case --pulse
 ```
 
-Für eine 4,22-mm-Schicht mit 70-100 % DMSO steht ein eigener Sweep zur
-Verfügung. Standardmäßig werden Volumenprozent angenommen:
+A dedicated sweep is available for a 4.22 mm layer containing 70–100% DMSO.
+Volume percent is used by default:
 
 ```bash
 asm-dmso-sweep --basis volume --dmso-height-mm 4.22
-# oder als direkt editierbares Beispiel:
+# Or run the directly editable example:
 python examples/dmso_concentration_sweep.py
 ```
 
-Die Mischungseigenschaften werden nicht linear zwischen Wasser und DMSO
-gemittelt. Sie werden aus gemessenen Dichte- und Schallgeschwindigkeitsdaten
-bei 20 und 40 °C interpoliert
+The mixture properties are not calculated by linear interpolation between
+water and DMSO. They are interpolated from measured density and sound-speed
+data at 20 and 40 °C
 ([Palaiologou et al., 2006](https://doi.org/10.1007/s10953-006-9082-5)).
 
-Ein monostatisches Pulse-Echo-Beispiel verwendet denselben fokussierten
-Transducer nacheinander als Sender und Mikrofon. Es simuliert einen
-positiv beginnenden 10-MHz-Einzykluspuls durch 25,3 mm Wasser, 0,78 mm PP und
-4,22 mm 80 Vol.-% DMSO bis zur Grenzfläche mit Luft:
+A monostatic pulse-echo example uses the same focused transducer first as the
+transmitter and then as the microphone. It simulates a positive-going
+single-cycle 10 MHz pulse through 25.3 mm of water, 0.78 mm of PP, and 4.22 mm
+of 80 vol.% DMSO to the air interface:
 
 ```bash
 python examples/pulse_echo_80pct_dmso.py
 ```
 
-Die Transducer-Antwort verwendet die gemessenen Daten des
-Doppler-I2-10P13F25-H-Prüfkopfs: 25,40 mm Fokus, 9,97 MHz Mittenfrequenz,
-11,29 MHz Peak-Frequenz und 108,22 % relative -6-dB-Bandbreite im
-Pulse-Echo-Betrieb. Diese Zweiwegantwort wird einmal angewendet; sie wird
-nicht fälschlich als Einwegantwort beim Senden und Empfangen quadriert.
+The transducer response uses the measured specifications of the
+Doppler-I2-10P13F25-H probe: a 25.40 mm focus, 9.97 MHz center frequency,
+11.29 MHz peak frequency, and 108.22% relative −6 dB pulse-echo bandwidth.
+This two-way response is applied once; it is not incorrectly squared as
+separate one-way transmit and receive responses.
 
-Der Plot markiert Wasser-PP, PP-DMSO und DMSO-Luft separat. Die
-frequenzabhängige PP-Plattenantwort enthält weiterhin ihre internen
-Mehrfachreflexionen. Alle Empfangssignale bleiben ohne elektrische und
-akustische Kalibration normiert.
+The plot marks the water–PP, PP–DMSO, and DMSO–air interfaces separately. The
+frequency-dependent PP plate response continues to include its internal
+multiple reflections. All received signals remain normalized unless the
+electrical and acoustic paths have been calibrated.
 
-Konzentration, Füllhöhe und Temperatur können für einen Vergleich geändert
-werden:
+Concentration, fill height, and temperature can be changed for comparison:
 
 ```bash
 python examples/pulse_echo_80pct_dmso.py \
@@ -152,67 +150,68 @@ python examples/pulse_echo_80pct_dmso.py \
   --temperature-c 22
 ```
 
-Eine Survey-JSON-Datei kann ausschließlich als separat normierte
-Timing-/Pulsformreferenz eingeblendet werden:
+A survey JSON file can be overlaid exclusively as an independently normalized
+timing and pulse-shape reference:
 
 ```bash
 python examples/pulse_echo_80pct_dmso.py \
   --dmso-percent 73 \
-  --survey-json /pfad/zur/survey.json
+  --survey-json /path/to/survey.json
 ```
 
-Dabei werden ADC-Werte nicht als Druck oder Intensität interpretiert.
-`FluidMaterial`, Temperatur und eine lediglich aus der Laufzeit berechnete
-Füllhöhe werden nicht zur Materialkalibration verwendet. Die Rohdatei wird
-weder kopiert noch in die Ergebnisdateien eingebettet.
+ADC values are not interpreted as pressure or intensity. `FluidMaterial`,
+temperature, and a fill height calculated only from time of flight are not
+used to calibrate the material properties. The raw file is neither copied nor
+embedded in the result files.
 
-Für eine detaillierte Auswertung der JSON-Zeitmarken mit lokal normierten
-Echoformen und Spektren steht ein eigener Vergleich zur Verfügung:
+A separate comparison tool provides a detailed analysis of JSON timestamps,
+locally normalized echo shapes, and spectra:
 
 ```bash
-python examples/survey_json_comparison.py /pfad/zur/survey.json \
+python examples/survey_json_comparison.py /path/to/survey.json \
   --dmso-percent 73 \
   --temperature-c 22 \
   --known-water-path-mm 25.3
 ```
 
-Das Skript berichtet sowohl die gespeicherten Distanzen als auch die für die
-gewählte Flüssigkeit aus den Echoabständen berechneten TOF-äquivalenten
-Distanzen. Dadurch wird sichtbar, wenn die JSON-Distanzen bereits mit einer
-fest angenommenen Schallgeschwindigkeit berechnet wurden. Die drei Echoformen
-werden separat zeitverschoben und normiert verglichen; Korrelation,
-Restverschiebung, lokales Spektrum und relative Hüllkurvenpeaks sind daher
-qualitative Diagnosegrößen, keine absolute Druckkalibration. Rohdatenbasierte
-Plots werden unter `results/private/` abgelegt und von Git ignoriert.
+The script reports both the stored distances and the time-of-flight-equivalent
+distances calculated from the echo spacing for the selected fluid. This makes
+it apparent when the JSON distances were originally calculated with a fixed
+assumed sound speed. The three echo shapes are shifted in time and normalized
+independently before comparison. Correlation, residual time shift, local
+spectrum, and relative envelope peaks are therefore qualitative diagnostic
+metrics, not an absolute pressure calibration. Plots derived from raw data are
+stored under `results/private/` and ignored by Git.
 
-Für eine ideal auf den Meniskus nachgeführte Fokussierung kann die
-Vorwärtsintensität direkt unter der DMSO-Luft-Grenze über eine Füllhöhe von
-2 bis 3 mm ausgewertet werden:
+For ideal focusing that tracks the meniscus, the forward intensity directly
+below the DMSO–air interface can be evaluated over a fill-height range from 2
+to 3 mm:
 
 ```bash
 python examples/meniscus_intensity_sweep.py
 ```
 
-Das Beispiel stellt die kohärente Rechnung mit allen Reflexionen einer
-Einweg-Referenz ohne DMSO-Kavitätsreflexion gegenüber. So bleibt der
-Interferenzeffekt getrennt von der Fokusverschiebung sichtbar.
+The example compares the coherent calculation including all reflections with
+a one-way reference that excludes DMSO cavity reflections. This keeps the
+interference effect distinguishable from the focal shift.
 
-## Wichtige, noch zu messende Parameter
+## Important parameters that still require measurement
 
-Aus dem Chat ist nur die longitudinale PP-Geschwindigkeit gemessen. Deshalb
-sind folgende Standardwerte ausdrücklich **Startwerte**, keine Kalibration:
+Only the longitudinal PP sound speed was measured in the shared setup.
+Consequently, the following defaults are explicitly **starting values**, not a
+calibration:
 
-- PP-Dichte: 900 kg/m³
-- PP-Querkontraktionszahl: 0,42; daraus folgt \(c_S \approx 1015\) m/s
-- PP-Dämpfung für P und SV: standardmäßig 0 dB/m
-- DMSO bei 22 °C: 1499 m/s und 1098,4 kg/m³ als Literatur-Näherung
-- Wasser bei 22 °C: 1488,4 m/s und 997,77 kg/m³
-- Wasserweg bis zur PP-Vorderseite: 20 mm
+- PP density: 900 kg/m³
+- PP Poisson ratio: 0.42, corresponding to \(c_S \approx 1015\) m/s
+- PP attenuation for P and SV waves: 0 dB/m by default
+- DMSO at 22 °C: 1499 m/s and 1098.4 kg/m³ as a literature approximation
+- Water at 22 °C: 1488.4 m/s and 997.77 kg/m³
+- Water path to the front of the PP plate: 20 mm
 
-Für belastbare absolute Drücke sollten mindestens PP-Dichte,
-PP-Scherwellengeschwindigkeit, longitudinale und transversale Dämpfung sowie
-Schallgeschwindigkeit/Dichte der tatsächlich verwendeten DMSO-Konzentration
-gemessen werden. Ein eigener Messwert wird beispielsweise so eingesetzt:
+For reliable absolute pressures, at least the PP density, PP shear-wave speed,
+longitudinal and transverse attenuation, and the sound speed and density of
+the actual DMSO mixture should be measured. Custom measured values can be
+provided as follows:
 
 ```bash
 asm-pp-case \
@@ -225,11 +224,11 @@ asm-pp-case \
   --dmso-density 1097
 ```
 
-Die Dämpfungswerte sind Amplitudenverluste in dB/m bei der simulierten
-Mittenfrequenz. Ohne gemessene Dämpfung kann die Resonanzlage sinnvoll sein,
-die Resonanzhöhe und damit der Spitzendruck aber nicht.
+The attenuation values describe amplitude loss in dB/m at the simulated center
+frequency. Without measured attenuation, the resonance positions may still be
+meaningful, but their heights—and therefore the peak pressure—are not.
 
-## Verwendung als Python-Bibliothek
+## Using the Python library
 
 ```python
 import numpy as np
@@ -248,8 +247,8 @@ dmso = Fluid("DMSO_22C", 1098.4, 1499.0)
 pp = ElasticSolid.from_longitudinal_speed_and_poisson(
     name="PP",
     density_kg_m3=900.0,
-    longitudinal_speed_m_s=2732.0,  # gemessen
-    poisson_ratio=0.42,              # ersetzen, sobald cS gemessen ist
+    longitudinal_speed_m_s=2732.0,  # measured
+    poisson_ratio=0.42,              # replace once cS has been measured
 )
 
 model = AngularSpectrumModel(
@@ -266,38 +265,38 @@ axis_pressure = model.on_axis_scan_after_plate(10e6, z_after_pp)
 focus_index = np.argmax(np.abs(axis_pressure))
 focus_z = 20e-3 + 0.78e-3 + z_after_pp[focus_index]
 focal_plane = model.field_after_plate(10e6, z_after_pp[focus_index])
-print(f"Fokus bei {focus_z * 1e3:.3f} mm")
+print(f"Focus at {focus_z * 1e3:.3f} mm")
 ```
 
-Ein vollständig editierbares Beispiel liegt unter
+A fully editable example is available at
 [`examples/custom_case.py`](examples/custom_case.py).
 
-## Physikalischer Umfang und Grenzen
+## Physical scope and limitations
 
-Enthalten:
+Included:
 
-- exakte 3D-FFT-Propagation ohne paraxiale \(k_z\)-Näherung
-- propagierende und evaneszente Komponenten mit auslaufendem Wurzelzweig
-- P-/SV-Modenkonversion in einer isotropen elastischen PP-Platte
-- Mehrfachreflexionen und Plattenresonanzen
-- frequenz- und winkelabhängige komplexe Transmission
-- verlustbehaftete Medien über komplexe Wellenzahlen
-- optional bandbegrenzte ASM-Auswertung gegen numerisches Wrap-around
-- optionale Zeitrekonstruktion eines breitbandigen Pulses
+- Exact 3D FFT propagation without a paraxial \(k_z\) approximation
+- Propagating and evanescent components using the outgoing/decaying root
+- P/SV mode conversion in an isotropic elastic PP plate
+- Multiple reflections and plate resonances
+- Frequency- and angle-dependent complex transmission
+- Lossy media represented by complex wavenumbers
+- Optional band-limited ASM evaluation to reduce numerical wrap-around
+- Optional time-domain reconstruction of a broadband pulse
 
-Nicht enthalten:
+Not included:
 
-- elastische Anisotropie einer orientierten/extrudierten PP-Folie
-- endliche seitliche Abmessungen oder Verkippung der PP-Platte
-- Oberflächenrauheit, Verklebungen, Luftblasen oder zusätzliche Schichten
-- Nichtlinearität bei hohen Schalldrücken
-- ein elektromechanisches Transducer-Ersatzschaltbild
+- Elastic anisotropy of oriented or extruded PP film
+- Finite lateral dimensions or tilt of the PP plate
+- Surface roughness, adhesive layers, air bubbles, or additional layers
+- Nonlinearity at high acoustic pressures
+- An electromechanical transducer equivalent circuit
 
-Die Quelle ist eine planare äquivalente Kreisapertur mit exakter sphärischer
-Fokussierungsphase. Der Standardwert von 1 Pa an der Apertur liefert daher
-einen relativen Fokussierungsgewinn. Für absolute Hydrophone-Drücke muss
-`pressure_amplitude_pa` oder ein gemessener komplexer
-Spannung-zu-Druck-Frequenzgang eingesetzt werden.
+The source is a planar equivalent circular aperture with an exact spherical
+focusing phase. The default aperture pressure of 1 Pa therefore produces a
+relative focusing gain. For absolute hydrophone pressures,
+`pressure_amplitude_pa` or a measured complex voltage-to-pressure frequency
+response must be supplied.
 
 ## Tests
 
@@ -305,10 +304,10 @@ Spannung-zu-Druck-Frequenzgang eingesetzt werden.
 PYTHONPATH=src python -m unittest discover -s tests -v
 ```
 
-Die Tests prüfen insbesondere:
+The tests cover, in particular:
 
-- den auslaufenden/abklingenden \(k_z\)-Zweig
-- Übereinstimmung mit der analytischen Schichtformel bei Normalinzidenz
-- Energieerhaltung \(R+T=1\) für eine verlustfreie Platte
-- Fokus und endliche Felder auf einem reduzierten Gitter
-- die Zeitkonvention der Pulsrekonstruktion
+- The outgoing/decaying \(k_z\) root
+- Agreement with the analytical layer formula at normal incidence
+- Energy conservation \(R+T=1\) for a lossless plate
+- Focus and finite fields on a reduced grid
+- The time convention used for pulse reconstruction
