@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import csv
-from dataclasses import asdict, replace
+from dataclasses import asdict, dataclass, replace
 from io import BytesIO, StringIO
 import json
 from typing import Any
@@ -16,8 +16,11 @@ import numpy as np
 import streamlit as st
 
 from angular_spectrum import (
+    ReferenceTransferCalibration,
     SurveyPulseEcho,
+    apply_reference_transfer,
     dmso_water_properties,
+    estimate_reference_transfer,
     interpret_survey_geometry,
     parse_survey_pulse_echo,
 )
@@ -42,6 +45,28 @@ COLORS = {
     "grid": "#dce7e4",
     "paper": "#fbfcfb",
 }
+
+GEOMETRY_MANUAL = "Manual geometry"
+GEOMETRY_SURVEY_KEEP_WATER = "Survey TOF · keep manual water gap"
+GEOMETRY_SURVEY_ALL = "Survey metadata · all distances"
+GEOMETRY_MODES = (
+    GEOMETRY_MANUAL,
+    GEOMETRY_SURVEY_KEEP_WATER,
+    GEOMETRY_SURVEY_ALL,
+)
+
+
+@dataclass(frozen=True)
+class DisplaySignals:
+    """Signals shown after an optional in-situ survey correction."""
+
+    received: np.ndarray
+    plate: np.ndarray
+    surface: np.ndarray
+    envelope: np.ndarray
+    spectrum_db: np.ndarray
+    reference_calibration: ReferenceTransferCalibration | None
+    calibration_error: str | None
 
 
 st.set_page_config(
@@ -557,16 +582,18 @@ def _style_axis(axis: plt.Axes) -> None:
     axis.xaxis.label.set_color(COLORS["muted"])
     axis.yaxis.label.set_color(COLORS["muted"])
     axis.title.set_color(COLORS["ink"])
-    axis.title.set_fontweight(600)
+    axis.title.set_fontweight(700)
 
 
 def _used_geometry(
     manual_inputs: SimulationInputs,
     survey: SurveyPulseEcho | None,
-    use_survey_geometry: bool,
+    geometry_mode: str,
 ) -> tuple[SimulationInputs, str]:
-    if survey is None or not use_survey_geometry:
+    if survey is None or geometry_mode == GEOMETRY_MANUAL:
         return manual_inputs, "Manual geometry fields"
+    if geometry_mode not in GEOMETRY_MODES:
+        raise ValueError(f"unknown geometry mode: {geometry_mode}")
     properties = dmso_water_properties(
         manual_inputs.dmso_volume_percent / 100.0,
         basis="volume",
@@ -578,11 +605,16 @@ def _used_geometry(
         plate_longitudinal_speed_m_s=PP_LONGITUDINAL_SPEED_M_S,
         fluid_sound_speed_m_s=properties.sound_speed_m_s,
     )
-    water_path_m = (
-        geometry.stored_probe_to_plate_m
-        if geometry.stored_probe_to_plate_m is not None
-        else geometry.tof_probe_to_plate_m
-    )
+    if geometry_mode == GEOMETRY_SURVEY_KEEP_WATER:
+        water_path_m = manual_inputs.water_path_mm * 1e-3
+        water_source = "manual water gap"
+    else:
+        water_path_m = (
+            geometry.stored_probe_to_plate_m
+            if geometry.stored_probe_to_plate_m is not None
+            else geometry.tof_probe_to_plate_m
+        )
+        water_source = "stored/TOF water distance"
     plate_thickness_m = (
         geometry.stored_plate_thickness_m
         if geometry.stored_plate_thickness_m is not None
@@ -595,8 +627,8 @@ def _used_geometry(
         fluid_height_mm=geometry.tof_fluid_height_m * 1e3,
     )
     source = (
-        "Survey geometry: stored water/PP distances when available; "
-        "fluid height from interface timing and the selected DMSO hypothesis"
+        f"Survey timing with {water_source}; PP thickness from stored/TOF "
+        "timing and fluid height from the selected DMSO sound speed"
     )
     return used, source
 
@@ -614,9 +646,113 @@ def _measured_arrivals_relative_us(
     }
 
 
+def local_waveform_correlation(
+    measured_time_s: np.ndarray,
+    measured_signal: np.ndarray,
+    simulated_time_s: np.ndarray,
+    simulated_signal: np.ndarray,
+    *,
+    measured_arrival_s: float,
+    simulated_arrival_s: float,
+    half_window_s: float = 0.30e-6,
+    maximum_lag_s: float = 0.15e-6,
+) -> float:
+    """Return the best local normalized correlation around one echo."""
+
+    measured_local = measured_time_s - measured_arrival_s
+    simulated_local = simulated_time_s - simulated_arrival_s
+    mask = np.abs(measured_local) <= half_window_s
+    local_time = measured_local[mask]
+    measured = measured_signal[mask]
+    measured = measured - float(np.mean(measured))
+    sample_interval_s = float(np.median(np.diff(local_time)))
+    lags = np.arange(
+        -maximum_lag_s,
+        maximum_lag_s + 0.5 * sample_interval_s,
+        sample_interval_s,
+    )
+    best = -1.0
+    for lag_s in lags:
+        candidate = np.interp(
+            local_time - lag_s,
+            simulated_local,
+            simulated_signal,
+            left=0.0,
+            right=0.0,
+        )
+        candidate -= float(np.mean(candidate))
+        denominator = float(np.linalg.norm(measured) * np.linalg.norm(candidate))
+        if denominator > 0.0:
+            best = max(best, float(np.dot(measured, candidate) / denominator))
+    return best
+
+
+def display_signals(
+    result: InteractiveSimulationResult,
+    survey: SurveyPulseEcho | None,
+    use_reference_calibration: bool,
+) -> DisplaySignals:
+    """Return raw or water–PP-referenced traces for qualitative display."""
+
+    received = result.received_normalized.copy()
+    plate = result.plate_normalized.copy()
+    surface = result.surface_normalized.copy()
+    calibration = None
+    calibration_error = None
+    if survey is not None and use_reference_calibration:
+        simulation_time_s = result.time_relative_us * 1e-6
+        try:
+            calibration = estimate_reference_transfer(
+                survey.relative_time_s,
+                survey.normalized_signal,
+                simulation_time_s,
+                received,
+                measured_arrival_s=0.0,
+                simulated_arrival_s=0.0,
+                target_time_s=simulation_time_s,
+            )
+            received = apply_reference_transfer(
+                simulation_time_s,
+                received,
+                calibration,
+            )
+            plate = apply_reference_transfer(
+                simulation_time_s,
+                plate,
+                calibration,
+            )
+            surface = apply_reference_transfer(
+                simulation_time_s,
+                surface,
+                calibration,
+            )
+        except ValueError as exc:
+            calibration = None
+            calibration_error = str(exc)
+    scale = max(float(np.max(np.abs(received))), 1e-30)
+    received /= scale
+    plate /= scale
+    surface /= scale
+    envelope = analytic_envelope(received)
+    envelope /= max(float(np.max(envelope)), 1e-30)
+    spectrum = np.abs(np.fft.rfft(received))
+    spectrum /= max(float(np.max(spectrum)), 1e-30)
+    spectrum_db = 20.0 * np.log10(np.maximum(spectrum, 1e-6))
+    return DisplaySignals(
+        received=received,
+        plate=plate,
+        surface=surface,
+        envelope=envelope,
+        spectrum_db=spectrum_db,
+        reference_calibration=calibration,
+        calibration_error=calibration_error,
+    )
+
+
 def pulse_figure(
     result: InteractiveSimulationResult,
     survey: SurveyPulseEcho | None,
+    signals: DisplaySignals,
 ) -> plt.Figure:
     relative_arrivals = result.arrivals.relative_to_water_pp_us
     figure, axes = plt.subplots(
@@ -629,10 +765,14 @@ def pulse_figure(
     figure.patch.set_facecolor(COLORS["paper"])
     axes[0].plot(
         result.time_relative_us,
-        result.received_normalized,
+        signals.received,
         color=COLORS["blue"],
         linewidth=1.15,
-        label="ASM simulation",
+        label=(
+            "ASM simulation · water–PP referenced"
+            if signals.reference_calibration is not None
+            else "ASM simulation"
+        ),
     )
     measured_relative_us = None
     measured_envelope = None
@@ -686,7 +826,7 @@ def pulse_figure(
     axes[1].fill_between(
         result.time_relative_us,
         0.0,
-        result.envelope_normalized,
+        signals.envelope,
         color=COLORS["red"],
         alpha=0.08,
     )
@@ -699,7 +839,7 @@ def pulse_figure(
     )
     axes[1].plot(
         result.time_relative_us,
-        np.abs(result.plate_normalized),
+        np.abs(signals.plate),
         color=COLORS["blue"],
         linewidth=0.8,
         alpha=0.46,
@@ -707,7 +847,7 @@ def pulse_figure(
     )
     axes[1].plot(
         result.time_relative_us,
-        np.abs(result.surface_normalized),
+        np.abs(signals.surface),
         color=COLORS["green"],
         linewidth=0.9,
         alpha=0.75,
@@ -832,7 +972,10 @@ def focus_figure(result: InteractiveSimulationResult) -> plt.Figure:
     return figure
 
 
-def spectrum_figure(result: InteractiveSimulationResult) -> plt.Figure:
+def spectrum_figure(
+    result: InteractiveSimulationResult,
+    signals: DisplaySignals,
+) -> plt.Figure:
     figure, axis = plt.subplots(figsize=(9.5, 4.0), constrained_layout=True)
     figure.patch.set_facecolor(COLORS["paper"])
     mask = (
@@ -841,14 +984,14 @@ def spectrum_figure(result: InteractiveSimulationResult) -> plt.Figure:
     )
     axis.plot(
         result.frequency_mhz[mask],
-        result.received_spectrum_db[mask],
+        signals.spectrum_db[mask],
         color=COLORS["blue"],
         linewidth=1.35,
     )
     axis.fill_between(
         result.frequency_mhz[mask],
         -60.0,
-        result.received_spectrum_db[mask],
+        signals.spectrum_db[mask],
         color=COLORS["blue"],
         alpha=0.08,
     )
@@ -872,6 +1015,7 @@ def figure_png(figure: plt.Figure) -> bytes:
 def result_csv(
     result: InteractiveSimulationResult,
     survey: SurveyPulseEcho | None,
+    signals: DisplaySignals,
 ) -> bytes:
     measured = np.full(result.time_relative_us.shape, np.nan)
     if survey is not None:
@@ -890,10 +1034,11 @@ def result_csv(
     writer.writerow(
         [
             "time_relative_to_water_pp_us",
-            "simulation_normalized",
-            "simulation_envelope_normalized",
-            "pp_plate_component_normalized",
-            "dmso_air_component_normalized",
+            "simulation_raw_normalized",
+            "simulation_displayed_normalized",
+            "displayed_envelope_normalized",
+            "displayed_pp_plate_component_normalized",
+            "displayed_dmso_air_component_normalized",
             "survey_adc_normalized_interpolated",
         ]
     )
@@ -901,9 +1046,10 @@ def result_csv(
         zip(
             result.time_relative_us,
             result.received_normalized,
-            result.envelope_normalized,
-            result.plate_normalized,
-            result.surface_normalized,
+            signals.received,
+            signals.envelope,
+            signals.plate,
+            signals.surface,
             measured,
         )
     )
@@ -914,6 +1060,7 @@ def result_summary(
     result: InteractiveSimulationResult,
     survey: SurveyPulseEcho | None,
     geometry_source: str,
+    signals: DisplaySignals,
 ) -> dict[str, Any]:
     return {
         "inputs": asdict(result.inputs),
@@ -949,6 +1096,31 @@ def result_summary(
             ),
             "absolute_adc_calibrated": False,
             "signals_normalized_independently": survey is not None,
+            "water_pp_reference_calibration": {
+                "applied": signals.reference_calibration is not None,
+                "absolute_gain_calibrated": False,
+                "calibration_error": signals.calibration_error,
+                "gate_start_s": (
+                    None
+                    if signals.reference_calibration is None
+                    else signals.reference_calibration.gate_start_s
+                ),
+                "gate_end_s": (
+                    None
+                    if signals.reference_calibration is None
+                    else signals.reference_calibration.gate_end_s
+                ),
+                "minimum_frequency_hz": (
+                    None
+                    if signals.reference_calibration is None
+                    else signals.reference_calibration.minimum_frequency_hz
+                ),
+                "maximum_frequency_hz": (
+                    None
+                    if signals.reference_calibration is None
+                    else signals.reference_calibration.maximum_frequency_hz
+                ),
+            },
         },
         "numerics": {
             "simulated_frequency_bins": result.simulated_frequency_bin_count,
@@ -963,7 +1135,14 @@ def result_summary(
                 "the transducer certificate magnitude is represented by a "
                 "zero-phase asymmetric Gaussian"
             ),
-            "material attenuation is zero because measured values were not supplied",
+            (
+                "a water-PP reference correction, when enabled, is a common "
+                "qualitative system filter and not an ADC pressure calibration"
+            ),
+            (
+                "PP and fluid attenuation are user inputs and default to zero"
+            ),
+            "the meniscus is planar and parallel to the PP plate",
         ],
     }
 
@@ -1054,9 +1233,16 @@ with st.sidebar:
     )
     if st.session_state.get("_survey_token") != survey_token:
         st.session_state["_survey_token"] = survey_token
-        st.session_state["use_survey_geometry"] = survey is not None
-    elif "use_survey_geometry" not in st.session_state:
-        st.session_state["use_survey_geometry"] = False
+        st.session_state["geometry_mode"] = (
+            GEOMETRY_SURVEY_KEEP_WATER
+            if survey is not None
+            else GEOMETRY_MANUAL
+        )
+        st.session_state["use_reference_calibration"] = survey is not None
+    elif "geometry_mode" not in st.session_state:
+        st.session_state["geometry_mode"] = GEOMETRY_MANUAL
+    if "use_reference_calibration" not in st.session_state:
+        st.session_state["use_reference_calibration"] = False
     if survey is not None:
         with st.expander("Extracted survey metadata", expanded=False):
             st.write(f"Sample rate: {survey.sample_rate_hz / 1e6:.1f} MHz")
@@ -1071,6 +1257,16 @@ with st.sidebar:
                 f"Stored fluid height: {_optional_mm(survey.stored_fluid_height_m)}"
             )
             st.write(f"Stored fluid label: {survey.fluid_material or 'missing'}")
+    use_reference_calibration = st.checkbox(
+        "Match waveform to water–PP reference",
+        disabled=survey is None,
+        key="use_reference_calibration",
+        help=(
+            "Derives one bounded complex system-response correction only from "
+            "the measured water–PP echo, then applies it equally to all "
+            "simulated echoes. ADC amplitude remains qualitative."
+        ),
+    )
 
     st.divider()
     with st.form("simulation_form"):
@@ -1118,14 +1314,16 @@ with st.sidebar:
             value=0.78,
             step=0.01,
         )
-        use_survey_geometry = st.checkbox(
-            "Derive geometry from survey",
+        geometry_mode = st.selectbox(
+            "Geometry source",
+            options=GEOMETRY_MODES,
             disabled=survey is None,
-            key="use_survey_geometry",
+            key="geometry_mode",
             help=(
-                "Uses stored water/PP distances when available. The fluid "
-                "height is derived from echo timing with the selected DMSO "
-                "sound speed."
+                "The recommended survey mode preserves an independently known "
+                "manual water gap while deriving PP and fluid thickness from "
+                "echo differences. The all-distances mode also uses the stored "
+                "water distance."
             ),
         )
 
@@ -1161,6 +1359,40 @@ with st.sidebar:
             value=25.4,
             step=0.1,
         )
+        with st.expander("Advanced material loss", expanded=False):
+            st.caption(
+                "Optional amplitude attenuation at 10 MHz. Leave at zero "
+                "until measured or independently fitted."
+            )
+            pp_alpha_l_db_m = st.number_input(
+                "PP longitudinal loss [dB/m]",
+                min_value=0.0,
+                max_value=100000.0,
+                value=0.0,
+                step=100.0,
+            )
+            pp_alpha_s_db_m = st.number_input(
+                "PP shear loss [dB/m]",
+                min_value=0.0,
+                max_value=100000.0,
+                value=0.0,
+                step=100.0,
+            )
+            fluid_alpha_db_m = st.number_input(
+                "Fluid loss [dB/m]",
+                min_value=0.0,
+                max_value=20000.0,
+                value=0.0,
+                step=25.0,
+            )
+            attenuation_power = st.number_input(
+                "Frequency exponent",
+                min_value=0.0,
+                max_value=3.0,
+                value=1.0,
+                step=0.1,
+                help="Attenuation scales as (frequency / 10 MHz)^exponent.",
+            )
         numerical_preset = st.selectbox(
             "Calculation quality",
             options=list(NUMERICAL_PRESETS),
@@ -1184,13 +1416,17 @@ if submitted:
         excitation_cycles=excitation_cycles,
         transducer_diameter_mm=transducer_diameter_mm,
         transducer_focal_length_mm=transducer_focal_length_mm,
+        pp_longitudinal_attenuation_db_per_m=pp_alpha_l_db_m,
+        pp_shear_attenuation_db_per_m=pp_alpha_s_db_m,
+        fluid_attenuation_db_per_m=fluid_alpha_db_m,
+        attenuation_power=attenuation_power,
         numerical_preset=numerical_preset,
     )
     try:
         used_inputs, geometry_source = _used_geometry(
             manual_inputs,
             survey,
-            use_survey_geometry,
+            geometry_mode,
         )
         with st.spinner(
             "Calculating the broadband echo and searching the focus…"
@@ -1224,6 +1460,17 @@ if result is None:
         unsafe_allow_html=True,
     )
     st.stop()
+
+shown_signals = display_signals(
+    result,
+    result_survey,
+    bool(st.session_state.get("use_reference_calibration", False)),
+)
+if shown_signals.calibration_error is not None:
+    st.warning(
+        "The water–PP reference correction could not be applied: "
+        f"{shown_signals.calibration_error}. Raw simulation traces are shown."
+    )
 
 offset = result.focus_offset_from_meniscus_mm
 offset_label = "below" if offset < 0.0 else "above"
@@ -1297,6 +1544,15 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+if shown_signals.reference_calibration is not None:
+    calibration = shown_signals.reference_calibration
+    st.info(
+        "Waveform reference active: a regularized common-system correction "
+        "derived only from the water–PP echo is applied to every displayed "
+        f"simulation trace from {calibration.minimum_frequency_hz / 1e6:.1f} "
+        f"to {calibration.maximum_frequency_hz / 1e6:.1f} MHz. Geometry, "
+        "focus, and absolute gain are unchanged."
+    )
 
 pulse_tab, focus_tab, data_tab = st.tabs(
     ["Pulse response", "Focus optimization", "Spectrum & exports"]
@@ -1317,7 +1573,7 @@ with pulse_tab:
         """,
         unsafe_allow_html=True,
     )
-    pulse_plot = pulse_figure(result, result_survey)
+    pulse_plot = pulse_figure(result, result_survey, shown_signals)
     st.pyplot(pulse_plot, width="stretch")
     st.markdown(
         """
@@ -1342,6 +1598,31 @@ with pulse_tab:
         measured_us = (
             None if measured_arrivals is None else measured_arrivals[name]
         )
+        raw_correlation: float | str = "—"
+        displayed_correlation: float | str = "—"
+        if result_survey is not None and measured_us is not None:
+            raw_correlation = round(
+                local_waveform_correlation(
+                    result_survey.relative_time_s,
+                    result_survey.normalized_signal,
+                    result.time_relative_us * 1e-6,
+                    result.received_normalized,
+                    measured_arrival_s=measured_us * 1e-6,
+                    simulated_arrival_s=simulated_us * 1e-6,
+                ),
+                3,
+            )
+            displayed_correlation = round(
+                local_waveform_correlation(
+                    result_survey.relative_time_s,
+                    result_survey.normalized_signal,
+                    result.time_relative_us * 1e-6,
+                    shown_signals.received,
+                    measured_arrival_s=measured_us * 1e-6,
+                    simulated_arrival_s=simulated_us * 1e-6,
+                ),
+                3,
+            )
         timing_rows.append(
             {
                 "Interface": name,
@@ -1354,6 +1635,8 @@ with pulse_tab:
                     if measured_us is None
                     else round(measured_us - simulated_us, 4)
                 ),
+                "Correlation raw": raw_correlation,
+                "Correlation displayed": displayed_correlation,
             }
         )
     st.dataframe(
@@ -1364,7 +1647,8 @@ with pulse_tab:
     st.caption(
         "Times are relative to the water–PP marker. A timing residual can arise "
         "from uncertain geometry, fluid concentration/temperature, PP sound "
-        "speed, interface picking, or fixed electronic delay."
+        "speed, interface picking, or fixed electronic delay. Correlations use "
+        "independently normalized 0.6 µs windows and a ±0.15 µs local lag search."
     )
 
 with focus_tab:
@@ -1416,12 +1700,13 @@ with data_tab:
         """,
         unsafe_allow_html=True,
     )
-    spectral_plot = spectrum_figure(result)
+    spectral_plot = spectrum_figure(result, shown_signals)
     st.pyplot(spectral_plot, width="stretch")
     summary = result_summary(
         result,
         result_survey,
         geometry_source,
+        shown_signals,
     )
     download_columns = st.columns(3)
     download_columns[0].download_button(
@@ -1433,7 +1718,7 @@ with data_tab:
     )
     download_columns[1].download_button(
         "Download signal data (CSV)",
-        data=result_csv(result, result_survey),
+        data=result_csv(result, result_survey, shown_signals),
         file_name="pulse_echo_focus_lab.csv",
         mime="text/csv",
         width="stretch",
