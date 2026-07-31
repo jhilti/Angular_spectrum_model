@@ -34,6 +34,18 @@ dokumentiert ([Aanes et al., 2016](https://arxiv.org/abs/1604.02258));
 eine verwandte offene ASM-Implementierung für einen Kolbenstrahler findet sich
 bei [Sæther, 2023](https://doi.org/10.1016/j.mex.2023.102037).
 
+## Beispielergebnisse
+
+| Breitbandige Pulse-Echo-Antwort | Meniskus-Sweep von 2 bis 3 mm |
+|:---:|:---:|
+| [![Pulse-Echo-Antwort mit Wasser-PP, PP-DMSO und DMSO-Luft](results/pulse_echo_80pct_dmso.png)](results/pulse_echo_80pct_dmso.png) | [![Intensität am Meniskus über der DMSO-Füllhöhe](results/meniscus_intensity_sweep.png)](results/meniscus_intensity_sweep.png) |
+| **DMSO-Konzentration und Fokuslage** | **Frequenzabhängige PP-Transmission** |
+| [![Fokuslage für verschiedene DMSO-Konzentrationen](results/dmso_concentration_focus.png)](results/dmso_concentration_focus.png) | [![Transmission und Reflexion der PP-Platte über der Frequenz](results/transmission_vs_frequency.png)](results/transmission_vs_frequency.png) |
+
+Die Abbildungen sind anklickbar und öffnen die jeweilige PNG-Datei in voller
+Auflösung. Druck-, Empfangs- und Intensitätswerte sind ohne eine vollständige
+Transducer-/ADC-Kalibration relative Größen.
+
 ## Schnellstart
 
 ```bash
