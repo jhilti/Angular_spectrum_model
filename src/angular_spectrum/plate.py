@@ -225,6 +225,50 @@ def elastic_plate_scattering(
     )
 
 
+def elastic_plate_scattering_map(
+    transverse_wavenumber_rad_m: ArrayLike,
+    frequency_hz: float,
+    left: Fluid,
+    plate: ElasticPlate,
+    right: Fluid,
+    *,
+    radial_samples: int | None = 4096,
+) -> tuple[ComplexArray, ComplexArray]:
+    """Return 2D-ready pressure reflection and transmission maps.
+
+    For an isotropic parallel plate both coefficients depend only on ``q``.
+    Sampling it densely on a one-dimensional radial grid is much faster than
+    solving a 6x6 system independently at every Cartesian FFT sample.
+    Set ``radial_samples=None`` for a direct solve at all supplied values.
+    """
+
+    q = np.asarray(transverse_wavenumber_rad_m, dtype=float)
+    if radial_samples is None:
+        return elastic_plate_scattering(q, frequency_hz, left, plate, right)
+    if radial_samples < 128:
+        raise ValueError("radial_samples must be >= 128 or None")
+    q_max = float(np.max(q))
+    if q_max == 0.0:
+        reflection, transmission = _normal_incidence_scattering(
+            frequency_hz, left, plate, right
+        )
+        return (
+            np.full(q.shape, reflection, dtype=np.complex128),
+            np.full(q.shape, transmission, dtype=np.complex128),
+        )
+    q_radial = np.linspace(0.0, q_max, radial_samples, dtype=float)
+    reflection_radial, transmission_radial = elastic_plate_scattering(
+        q_radial, frequency_hz, left, plate, right
+    )
+
+    def interpolate(values: ComplexArray) -> ComplexArray:
+        real = np.interp(q.reshape(-1), q_radial, values.real)
+        imag = np.interp(q.reshape(-1), q_radial, values.imag)
+        return (real + 1j * imag).reshape(q.shape)
+
+    return interpolate(reflection_radial), interpolate(transmission_radial)
+
+
 def elastic_plate_transfer_map(
     transverse_wavenumber_rad_m: ArrayLike,
     frequency_hz: float,
@@ -234,33 +278,16 @@ def elastic_plate_transfer_map(
     *,
     radial_samples: int | None = 4096,
 ) -> ComplexArray:
-    """Return a 2D-ready plate transfer map.
+    """Return a 2D-ready pressure-transmission map."""
 
-    For an isotropic parallel plate the coefficient depends only on ``q``.
-    Sampling it densely on a one-dimensional radial grid is much faster than
-    solving a 6x6 system independently at every Cartesian FFT sample.
-    Set ``radial_samples=None`` for a direct solve at all supplied values.
-    """
-
-    q = np.asarray(transverse_wavenumber_rad_m, dtype=float)
-    if radial_samples is None:
-        return elastic_plate_scattering(q, frequency_hz, left, plate, right)[1]
-    if radial_samples < 128:
-        raise ValueError("radial_samples must be >= 128 or None")
-    q_max = float(np.max(q))
-    if q_max == 0.0:
-        return np.full(
-            q.shape,
-            _normal_incidence_scattering(frequency_hz, left, plate, right)[1],
-            dtype=np.complex128,
-        )
-    q_radial = np.linspace(0.0, q_max, radial_samples, dtype=float)
-    transmission_radial = elastic_plate_scattering(
-        q_radial, frequency_hz, left, plate, right
+    return elastic_plate_scattering_map(
+        transverse_wavenumber_rad_m,
+        frequency_hz,
+        left,
+        plate,
+        right,
+        radial_samples=radial_samples,
     )[1]
-    real = np.interp(q.reshape(-1), q_radial, transmission_radial.real)
-    imag = np.interp(q.reshape(-1), q_radial, transmission_radial.imag)
-    return (real + 1j * imag).reshape(q.shape)
 
 
 def fluid_interface_scattering(

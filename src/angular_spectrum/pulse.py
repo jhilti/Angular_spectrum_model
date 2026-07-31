@@ -81,6 +81,45 @@ def gaussian_transducer_response(
     return np.exp(-np.log(2.0) * normalized_offset**2)
 
 
+def asymmetric_gaussian_response(
+    frequency_hz: ArrayLike,
+    *,
+    peak_frequency_hz: float,
+    lower_frequency_6db_hz: float,
+    upper_frequency_6db_hz: float,
+) -> NDArray[np.float64]:
+    """Return a zero-phase response with asymmetric -6 dB frequencies.
+
+    This is useful when a pulse-echo certificate reports a peak frequency and
+    the lower/upper -6 dB crossings rather than a one-way transducer response.
+    The result is 1 at ``peak_frequency_hz`` and 0.5 at both crossings.
+    """
+
+    frequency = np.asarray(frequency_hz, dtype=float)
+    parameters = {
+        "peak_frequency_hz": peak_frequency_hz,
+        "lower_frequency_6db_hz": lower_frequency_6db_hz,
+        "upper_frequency_6db_hz": upper_frequency_6db_hz,
+    }
+    if any(not np.isfinite(value) or value <= 0.0 for value in parameters.values()):
+        raise ValueError("response frequencies must be finite and > 0")
+    if not lower_frequency_6db_hz < peak_frequency_hz < upper_frequency_6db_hz:
+        raise ValueError(
+            "response frequencies must satisfy lower < peak < upper"
+        )
+    if np.any(~np.isfinite(frequency)):
+        raise ValueError("frequency_hz must be finite")
+
+    lower_width = peak_frequency_hz - lower_frequency_6db_hz
+    upper_width = upper_frequency_6db_hz - peak_frequency_hz
+    normalized_offset = np.where(
+        frequency <= peak_frequency_hz,
+        (frequency - peak_frequency_hz) / lower_width,
+        (frequency - peak_frequency_hz) / upper_width,
+    )
+    return np.exp(-np.log(2.0) * normalized_offset**2)
+
+
 def propagate_pulse_on_axis(
     model: AngularSpectrumModel,
     time_s: ArrayLike,

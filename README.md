@@ -34,6 +34,18 @@ dokumentiert ([Aanes et al., 2016](https://arxiv.org/abs/1604.02258));
 eine verwandte offene ASM-Implementierung für einen Kolbenstrahler findet sich
 bei [Sæther, 2023](https://doi.org/10.1016/j.mex.2023.102037).
 
+## Beispielergebnisse
+
+| Breitbandige Pulse-Echo-Antwort | Meniskus-Sweep von 2 bis 3 mm |
+|:---:|:---:|
+| [![Pulse-Echo-Antwort mit Wasser-PP, PP-DMSO und DMSO-Luft](results/pulse_echo_80pct_dmso.png)](results/pulse_echo_80pct_dmso.png) | [![Intensität am Meniskus über der DMSO-Füllhöhe](results/meniscus_intensity_sweep.png)](results/meniscus_intensity_sweep.png) |
+| **DMSO-Konzentration und Fokuslage** | **Frequenzabhängige PP-Transmission** |
+| [![Fokuslage für verschiedene DMSO-Konzentrationen](results/dmso_concentration_focus.png)](results/dmso_concentration_focus.png) | [![Transmission und Reflexion der PP-Platte über der Frequenz](results/transmission_vs_frequency.png)](results/transmission_vs_frequency.png) |
+
+Die Abbildungen sind anklickbar und öffnen die jeweilige PNG-Datei in voller
+Auflösung. Druck-, Empfangs- und Intensitätswerte sind ohne eine vollständige
+Transducer-/ADC-Kalibration relative Größen.
+
 ## Schnellstart
 
 ```bash
@@ -42,6 +54,42 @@ source .venv/bin/activate
 python -m pip install -e .
 asm-pp-case
 ```
+
+## Interaktive Web-GUI
+
+`streamlit_app.py` stellt die wichtigsten Parameter als Eingabefelder bereit
+und verbindet drei Auswertungen in einer Oberfläche:
+
+[**Pulse Echo Focus Lab im Browser öffnen**](https://angular-spectrum-model.streamlit.app/)
+
+- breitbandige Pulse-Echo-Antwort mit Wasser–PP, PP–DMSO und DMSO–Luft
+- qualitativer Overlay einer optional hochgeladenen Survey-JSON-Datei
+- aktuelle Fokuslage und Suche nach dem Wasserabstand, der die
+  Einweg-Intensität am Meniskus maximiert
+
+Die Oberfläche wird lokal so gestartet:
+
+```bash
+source .venv/bin/activate
+python -m pip install -e ".[app]"
+streamlit run streamlit_app.py
+```
+
+Danach öffnet sich die Anwendung im Browser. Ergebnisse können direkt als
+PNG, CSV und JSON heruntergeladen werden. Hochgeladene Survey-Daten werden
+nicht in das Repository oder in Ergebnisordner geschrieben. ADC-Werte bleiben
+separat normierte qualitative Signale.
+
+Für eine öffentliche Version kann dasselbe Repository über
+[Streamlit Community Cloud](https://share.streamlit.io/) bereitgestellt werden.
+Nach dem Verbinden des GitHub-Repositories werden der gewünschte Branch und
+`streamlit_app.py` als Startdatei ausgewählt. Änderungen an diesem Branch
+werden anschließend automatisch in die Web-App übernommen.
+
+Die Fokusoptimierung variiert den Wasserabstand und maximiert die
+monochromatische Einweg-Intensität am planaren Meniskus. Sie berücksichtigt
+die komplexe PP-Transmission und die DMSO-Schallgeschwindigkeit, hält aber
+Kavitätsinterferenz bewusst von der Fokusmetrik getrennt.
 
 Die Standardrechnung erzeugt im Ordner `results/`:
 
@@ -73,6 +121,81 @@ Die Mischungseigenschaften werden nicht linear zwischen Wasser und DMSO
 gemittelt. Sie werden aus gemessenen Dichte- und Schallgeschwindigkeitsdaten
 bei 20 und 40 °C interpoliert
 ([Palaiologou et al., 2006](https://doi.org/10.1007/s10953-006-9082-5)).
+
+Ein monostatisches Pulse-Echo-Beispiel verwendet denselben fokussierten
+Transducer nacheinander als Sender und Mikrofon. Es simuliert einen
+positiv beginnenden 10-MHz-Einzykluspuls durch 25,3 mm Wasser, 0,78 mm PP und
+4,22 mm 80 Vol.-% DMSO bis zur Grenzfläche mit Luft:
+
+```bash
+python examples/pulse_echo_80pct_dmso.py
+```
+
+Die Transducer-Antwort verwendet die gemessenen Daten des
+Doppler-I2-10P13F25-H-Prüfkopfs: 25,40 mm Fokus, 9,97 MHz Mittenfrequenz,
+11,29 MHz Peak-Frequenz und 108,22 % relative -6-dB-Bandbreite im
+Pulse-Echo-Betrieb. Diese Zweiwegantwort wird einmal angewendet; sie wird
+nicht fälschlich als Einwegantwort beim Senden und Empfangen quadriert.
+
+Der Plot markiert Wasser-PP, PP-DMSO und DMSO-Luft separat. Die
+frequenzabhängige PP-Plattenantwort enthält weiterhin ihre internen
+Mehrfachreflexionen. Alle Empfangssignale bleiben ohne elektrische und
+akustische Kalibration normiert.
+
+Konzentration, Füllhöhe und Temperatur können für einen Vergleich geändert
+werden:
+
+```bash
+python examples/pulse_echo_80pct_dmso.py \
+  --dmso-percent 73 \
+  --dmso-height-mm 4.22 \
+  --temperature-c 22
+```
+
+Eine Survey-JSON-Datei kann ausschließlich als separat normierte
+Timing-/Pulsformreferenz eingeblendet werden:
+
+```bash
+python examples/pulse_echo_80pct_dmso.py \
+  --dmso-percent 73 \
+  --survey-json /pfad/zur/survey.json
+```
+
+Dabei werden ADC-Werte nicht als Druck oder Intensität interpretiert.
+`FluidMaterial`, Temperatur und eine lediglich aus der Laufzeit berechnete
+Füllhöhe werden nicht zur Materialkalibration verwendet. Die Rohdatei wird
+weder kopiert noch in die Ergebnisdateien eingebettet.
+
+Für eine detaillierte Auswertung der JSON-Zeitmarken mit lokal normierten
+Echoformen und Spektren steht ein eigener Vergleich zur Verfügung:
+
+```bash
+python examples/survey_json_comparison.py /pfad/zur/survey.json \
+  --dmso-percent 73 \
+  --temperature-c 22 \
+  --known-water-path-mm 25.3
+```
+
+Das Skript berichtet sowohl die gespeicherten Distanzen als auch die für die
+gewählte Flüssigkeit aus den Echoabständen berechneten TOF-äquivalenten
+Distanzen. Dadurch wird sichtbar, wenn die JSON-Distanzen bereits mit einer
+fest angenommenen Schallgeschwindigkeit berechnet wurden. Die drei Echoformen
+werden separat zeitverschoben und normiert verglichen; Korrelation,
+Restverschiebung, lokales Spektrum und relative Hüllkurvenpeaks sind daher
+qualitative Diagnosegrößen, keine absolute Druckkalibration. Rohdatenbasierte
+Plots werden unter `results/private/` abgelegt und von Git ignoriert.
+
+Für eine ideal auf den Meniskus nachgeführte Fokussierung kann die
+Vorwärtsintensität direkt unter der DMSO-Luft-Grenze über eine Füllhöhe von
+2 bis 3 mm ausgewertet werden:
+
+```bash
+python examples/meniscus_intensity_sweep.py
+```
+
+Das Beispiel stellt die kohärente Rechnung mit allen Reflexionen einer
+Einweg-Referenz ohne DMSO-Kavitätsreflexion gegenüber. So bleibt der
+Interferenzeffekt getrennt von der Fokusverschiebung sichtbar.
 
 ## Wichtige, noch zu messende Parameter
 

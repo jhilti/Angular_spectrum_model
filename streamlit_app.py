@@ -1,0 +1,786 @@
+"""Interactive pulse-echo and focus dashboard."""
+
+from __future__ import annotations
+
+import csv
+from dataclasses import asdict, replace
+from io import BytesIO, StringIO
+import json
+from typing import Any
+
+import matplotlib
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import numpy as np
+import streamlit as st
+
+from angular_spectrum import (
+    SurveyPulseEcho,
+    dmso_water_properties,
+    interpret_survey_geometry,
+    parse_survey_pulse_echo,
+)
+from angular_spectrum.app_model import (
+    NUMERICAL_PRESETS,
+    PP_LONGITUDINAL_SPEED_M_S,
+    WATER_SOUND_SPEED_M_S,
+    InteractiveSimulationResult,
+    SimulationInputs,
+    analytic_envelope,
+    run_interactive_simulation,
+)
+
+
+COLORS = {
+    "ink": "#17252a",
+    "blue": "#236a7b",
+    "red": "#d65a4a",
+    "green": "#2a8c75",
+    "gold": "#d99b32",
+    "muted": "#6f7f83",
+}
+
+
+st.set_page_config(
+    page_title="Pulse Echo Focus Lab",
+    page_icon="◉",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+st.markdown(
+    """
+    <style>
+    :root { color-scheme: light; }
+    .stApp {
+        background:
+            radial-gradient(circle at 84% 4%, rgba(35,106,123,.09), transparent 24rem),
+            linear-gradient(180deg, #fbfcfa 0%, #f4f7f5 100%);
+    }
+    [data-testid="stSidebar"] {
+        background: #eef3f1;
+        border-right: 1px solid #d9e4df;
+    }
+    h1, h2, h3 { color: #17252a; letter-spacing: -.02em; }
+    div[data-testid="stMetric"] {
+        background: rgba(255,255,255,.84);
+        border: 1px solid #dbe5e1;
+        border-radius: .85rem;
+        padding: .85rem 1rem;
+        box-shadow: 0 5px 18px rgba(23,37,42,.045);
+    }
+    div[data-testid="stMetricLabel"] { color: #516568; }
+    .model-note {
+        padding: .9rem 1rem;
+        border-left: 4px solid #236a7b;
+        background: rgba(255,255,255,.72);
+        border-radius: .25rem .7rem .7rem .25rem;
+        color: #405356;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+
+def parse_uploaded_survey(data: bytes) -> SurveyPulseEcho:
+    document = json.loads(data.decode("utf-8"))
+    if not isinstance(document, dict):
+        raise ValueError("survey JSON root must be an object")
+    return parse_survey_pulse_echo(document)
+
+
+@st.cache_data(show_spinner=False, max_entries=12)
+def simulate_cached(inputs: SimulationInputs) -> InteractiveSimulationResult:
+    return run_interactive_simulation(inputs)
+
+
+def _optional_mm(value_m: float | None) -> str:
+    return "not stored" if value_m is None else f"{value_m * 1e3:.3f} mm"
+
+
+def _used_geometry(
+    manual_inputs: SimulationInputs,
+    survey: SurveyPulseEcho | None,
+    use_survey_geometry: bool,
+) -> tuple[SimulationInputs, str]:
+    if survey is None or not use_survey_geometry:
+        return manual_inputs, "Manual geometry fields"
+    properties = dmso_water_properties(
+        manual_inputs.dmso_volume_percent / 100.0,
+        basis="volume",
+        temperature_c=manual_inputs.temperature_c,
+    )
+    geometry = interpret_survey_geometry(
+        survey,
+        incident_sound_speed_m_s=WATER_SOUND_SPEED_M_S,
+        plate_longitudinal_speed_m_s=PP_LONGITUDINAL_SPEED_M_S,
+        fluid_sound_speed_m_s=properties.sound_speed_m_s,
+    )
+    water_path_m = (
+        geometry.stored_probe_to_plate_m
+        if geometry.stored_probe_to_plate_m is not None
+        else geometry.tof_probe_to_plate_m
+    )
+    plate_thickness_m = (
+        geometry.stored_plate_thickness_m
+        if geometry.stored_plate_thickness_m is not None
+        else geometry.tof_plate_thickness_m
+    )
+    used = replace(
+        manual_inputs,
+        water_path_mm=water_path_m * 1e3,
+        plate_thickness_mm=plate_thickness_m * 1e3,
+        fluid_height_mm=geometry.tof_fluid_height_m * 1e3,
+    )
+    source = (
+        "Survey geometry: stored water/PP distances when available; "
+        "fluid height from interface timing and the selected DMSO hypothesis"
+    )
+    return used, source
+
+
+def _measured_arrivals_relative_us(
+    survey: SurveyPulseEcho,
+) -> dict[str, float]:
+    return {
+        "Water–PP": 0.0,
+        "PP–DMSO": survey.pp_round_trip_time_s * 1e6,
+        "DMSO–air": (
+            survey.fluid_top_time_s - survey.water_pp_time_s
+        )
+        * 1e6,
+    }
+
+
+def pulse_figure(
+    result: InteractiveSimulationResult,
+    survey: SurveyPulseEcho | None,
+) -> plt.Figure:
+    relative_arrivals = result.arrivals.relative_to_water_pp_us
+    figure, axes = plt.subplots(
+        2,
+        1,
+        figsize=(11.5, 7.2),
+        sharex=True,
+        constrained_layout=True,
+    )
+    axes[0].plot(
+        result.time_relative_us,
+        result.received_normalized,
+        color=COLORS["blue"],
+        linewidth=1.05,
+        label="ASM simulation",
+    )
+    measured_relative_us = None
+    measured_envelope = None
+    if survey is not None:
+        measured_relative_us = survey.relative_time_s * 1e6
+        axes[0].plot(
+            measured_relative_us,
+            survey.normalized_signal,
+            color=COLORS["ink"],
+            linewidth=0.8,
+            alpha=0.72,
+            label="Survey ADC (independently normalized)",
+        )
+        measured_envelope = analytic_envelope(survey.normalized_signal)
+        measured_envelope /= max(float(np.max(measured_envelope)), 1e-30)
+
+    marker_styles = {
+        "Water–PP": ("--", COLORS["muted"]),
+        "PP–DMSO": (":", COLORS["red"]),
+        "DMSO–air": ("-.", COLORS["green"]),
+    }
+    for name, arrival_us in relative_arrivals.items():
+        linestyle, color = marker_styles[name]
+        axes[0].axvline(
+            arrival_us,
+            color=color,
+            linestyle=linestyle,
+            linewidth=1.15,
+            label=f"Simulated {name}",
+        )
+    if survey is not None:
+        for name, arrival_us in _measured_arrivals_relative_us(survey).items():
+            _, color = marker_styles[name]
+            axes[0].axvline(
+                arrival_us,
+                color=color,
+                linestyle=(0, (1, 2)),
+                linewidth=1.0,
+                alpha=0.68,
+            )
+
+    axes[0].set_ylabel("RF signal [relative]")
+    axes[0].set_title("Received pulse echo at the transmitting aperture")
+    axes[0].legend(loc="upper right", ncols=2, fontsize=8.5)
+
+    axes[1].plot(
+        result.time_relative_us,
+        result.envelope_normalized,
+        color=COLORS["red"],
+        linewidth=1.35,
+        label="Simulation envelope",
+    )
+    axes[1].plot(
+        result.time_relative_us,
+        np.abs(result.plate_normalized),
+        color=COLORS["blue"],
+        linewidth=0.8,
+        alpha=0.5,
+        label="PP plate component",
+    )
+    axes[1].plot(
+        result.time_relative_us,
+        np.abs(result.surface_normalized),
+        color=COLORS["green"],
+        linewidth=0.9,
+        alpha=0.75,
+        label="DMSO–air component",
+    )
+    if measured_relative_us is not None and measured_envelope is not None:
+        axes[1].plot(
+            measured_relative_us,
+            measured_envelope,
+            color=COLORS["ink"],
+            linewidth=1.05,
+            alpha=0.65,
+            label="Survey envelope",
+        )
+    for name, arrival_us in relative_arrivals.items():
+        linestyle, color = marker_styles[name]
+        axes[1].axvline(
+            arrival_us,
+            color=color,
+            linestyle=linestyle,
+            linewidth=1.0,
+        )
+    axes[1].set(
+        xlabel="Time relative to water–PP [µs]",
+        ylabel="Envelope / component [relative]",
+    )
+    axes[1].legend(loc="upper right", ncols=2, fontsize=8.5)
+
+    measured_last_arrival = 0.0
+    if survey is not None:
+        measured_last_arrival = max(
+            _measured_arrivals_relative_us(survey).values()
+        )
+    last_arrival = max(
+        max(relative_arrivals.values()),
+        measured_last_arrival,
+    )
+    axes[1].set_xlim(-0.55, last_arrival + 2.0)
+    for axis in axes:
+        axis.grid(alpha=0.2)
+        axis.spines[["top", "right"]].set_visible(False)
+    return figure
+
+
+def focus_figure(result: InteractiveSimulationResult) -> plt.Figure:
+    figure, axes = plt.subplots(
+        1,
+        2,
+        figsize=(11.5, 4.5),
+        constrained_layout=True,
+    )
+    axes[0].plot(
+        result.axial_position_after_pp_mm,
+        result.axial_intensity_normalized,
+        color=COLORS["blue"],
+        linewidth=1.7,
+    )
+    axes[0].axvline(
+        result.inputs.fluid_height_mm,
+        color=COLORS["green"],
+        linestyle="--",
+        label="Meniscus",
+    )
+    axes[0].axvline(
+        result.focus_after_pp_mm,
+        color=COLORS["gold"],
+        linestyle=":",
+        label="Calculated focus",
+    )
+    axes[0].set(
+        xlabel="Position after PP [mm]",
+        ylabel="On-axis intensity [normalized]",
+        title="Current axial focus",
+    )
+    axes[0].legend()
+
+    axes[1].plot(
+        result.water_path_scan_mm,
+        result.meniscus_intensity_normalized,
+        color=COLORS["green"],
+        linewidth=1.7,
+    )
+    axes[1].axvline(
+        result.inputs.water_path_mm,
+        color=COLORS["muted"],
+        linestyle="--",
+        label="Current water gap",
+    )
+    axes[1].axvline(
+        result.optimal_water_path_mm,
+        color=COLORS["gold"],
+        linestyle=":",
+        label="Best water gap",
+    )
+    axes[1].set(
+        xlabel="Water gap to PP [mm]",
+        ylabel="Intensity at meniscus [normalized]",
+        title="Focus optimization at the meniscus",
+    )
+    axes[1].legend()
+    for axis in axes:
+        axis.grid(alpha=0.2)
+        axis.spines[["top", "right"]].set_visible(False)
+    return figure
+
+
+def spectrum_figure(result: InteractiveSimulationResult) -> plt.Figure:
+    figure, axis = plt.subplots(figsize=(9.5, 4.0), constrained_layout=True)
+    mask = (
+        (result.frequency_mhz >= 1.0)
+        & (result.frequency_mhz <= 24.0)
+    )
+    axis.plot(
+        result.frequency_mhz[mask],
+        result.received_spectrum_db[mask],
+        color=COLORS["blue"],
+        linewidth=1.35,
+    )
+    axis.axhline(-6.0, color=COLORS["muted"], linestyle="--", linewidth=1.0)
+    axis.set(
+        xlabel="Frequency [MHz]",
+        ylabel="Received spectrum [dB, normalized]",
+        ylim=(-60.0, 2.0),
+        title="Simulated received spectrum",
+    )
+    axis.grid(alpha=0.2)
+    axis.spines[["top", "right"]].set_visible(False)
+    return figure
+
+
+def figure_png(figure: plt.Figure) -> bytes:
+    buffer = BytesIO()
+    figure.savefig(buffer, format="png", dpi=180, bbox_inches="tight")
+    return buffer.getvalue()
+
+
+def result_csv(
+    result: InteractiveSimulationResult,
+    survey: SurveyPulseEcho | None,
+) -> bytes:
+    measured = np.full(result.time_relative_us.shape, np.nan)
+    if survey is not None:
+        measured_time_us = survey.relative_time_s * 1e6
+        inside = (
+            (result.time_relative_us >= measured_time_us[0])
+            & (result.time_relative_us <= measured_time_us[-1])
+        )
+        measured[inside] = np.interp(
+            result.time_relative_us[inside],
+            measured_time_us,
+            survey.normalized_signal,
+        )
+    output = StringIO()
+    writer = csv.writer(output, lineterminator="\n")
+    writer.writerow(
+        [
+            "time_relative_to_water_pp_us",
+            "simulation_normalized",
+            "simulation_envelope_normalized",
+            "pp_plate_component_normalized",
+            "dmso_air_component_normalized",
+            "survey_adc_normalized_interpolated",
+        ]
+    )
+    writer.writerows(
+        zip(
+            result.time_relative_us,
+            result.received_normalized,
+            result.envelope_normalized,
+            result.plate_normalized,
+            result.surface_normalized,
+            measured,
+        )
+    )
+    return output.getvalue().encode("utf-8")
+
+
+def result_summary(
+    result: InteractiveSimulationResult,
+    survey: SurveyPulseEcho | None,
+    geometry_source: str,
+) -> dict[str, Any]:
+    return {
+        "inputs": asdict(result.inputs),
+        "geometry_source": geometry_source,
+        "dmso_properties": asdict(result.dmso_properties),
+        "arrivals_relative_to_water_pp_us": (
+            result.arrivals.relative_to_water_pp_us
+        ),
+        "focus": {
+            "focus_after_pp_mm": result.focus_after_pp_mm,
+            "focus_from_aperture_mm": result.focus_from_aperture_mm,
+            "focus_offset_from_meniscus_mm": (
+                result.focus_offset_from_meniscus_mm
+            ),
+            "focus_scan_boundary_limited": (
+                result.focus_scan_boundary_limited
+            ),
+            "optimal_water_path_mm_for_meniscus": (
+                result.optimal_water_path_mm
+            ),
+            "predicted_gain_from_water_path_adjustment_db": (
+                result.optimal_water_path_gain_db
+            ),
+            "criterion": (
+                "maximum single-pass on-axis intensity at the planar meniscus"
+            ),
+        },
+        "survey": {
+            "used": survey is not None,
+            "date_time": None if survey is None else survey.date_time,
+            "fluid_material": (
+                None if survey is None else survey.fluid_material
+            ),
+            "absolute_adc_calibrated": False,
+            "signals_normalized_independently": survey is not None,
+        },
+        "numerics": {
+            "simulated_frequency_bins": result.simulated_frequency_bin_count,
+            "preset": result.inputs.numerical_preset,
+        },
+        "assumptions": [
+            "survey ADC amplitudes are qualitative and independently normalized",
+            "uploaded survey data are parsed in memory and are not committed",
+            "DMSO concentration and temperature are user hypotheses",
+            "the focus optimization excludes DMSO-air cavity interference",
+            (
+                "the transducer certificate magnitude is represented by a "
+                "zero-phase asymmetric Gaussian"
+            ),
+            "material attenuation is zero because measured values were not supplied",
+        ],
+    }
+
+
+st.title("Pulse Echo Focus Lab")
+st.caption(
+    "Water → polypropylene → DMSO/water → air · broadband monostatic "
+    "angular-spectrum simulation"
+)
+st.markdown(
+    """
+    <div class="model-note">
+    Enter the known geometry, optionally upload a survey JSON, then run the
+    model. ADC amplitudes are displayed only as independently normalized,
+    qualitative traces.
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+survey: SurveyPulseEcho | None = None
+with st.sidebar:
+    st.header("Simulation inputs")
+    uploaded_file = st.file_uploader(
+        "Survey JSON (optional)",
+        type=["json"],
+        help=(
+            "The file is parsed in memory. Raw ADC data are not saved by the app."
+        ),
+    )
+    if uploaded_file is not None:
+        if uploaded_file.size > 10 * 1024 * 1024:
+            st.error("The survey file must be smaller than 10 MB.")
+        else:
+            try:
+                survey = parse_uploaded_survey(uploaded_file.getvalue())
+            except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+                st.error(f"Could not read this survey: {exc}")
+    survey_token = (
+        None
+        if survey is None or uploaded_file is None
+        else (uploaded_file.name, uploaded_file.size)
+    )
+    if st.session_state.get("_survey_token") != survey_token:
+        st.session_state["_survey_token"] = survey_token
+        st.session_state["use_survey_geometry"] = survey is not None
+    elif "use_survey_geometry" not in st.session_state:
+        st.session_state["use_survey_geometry"] = False
+    if survey is not None:
+        with st.expander("Extracted survey metadata", expanded=False):
+            st.write(f"Sample rate: {survey.sample_rate_hz / 1e6:.1f} MHz")
+            st.write(
+                "Probe → PP: "
+                f"{_optional_mm(survey.stored_probe_to_plate_m)}"
+            )
+            st.write(
+                f"PP thickness: {_optional_mm(survey.stored_plate_thickness_m)}"
+            )
+            st.write(
+                f"Stored fluid height: {_optional_mm(survey.stored_fluid_height_m)}"
+            )
+            st.write(f"Stored fluid label: {survey.fluid_material or 'missing'}")
+
+    with st.form("simulation_form"):
+        st.subheader("Fluid")
+        dmso_percent = st.number_input(
+            "DMSO [vol.%]",
+            min_value=0.0,
+            max_value=100.0,
+            value=80.0,
+            step=1.0,
+        )
+        temperature_c = st.number_input(
+            "Temperature [°C]",
+            min_value=20.0,
+            max_value=40.0,
+            value=22.0,
+            step=0.5,
+        )
+        fluid_height_mm = st.number_input(
+            "DMSO fill height [mm]",
+            min_value=0.1,
+            max_value=30.0,
+            value=4.22,
+            step=0.1,
+        )
+
+        st.subheader("Geometry")
+        water_path_mm = st.number_input(
+            "Water gap to PP [mm]",
+            min_value=0.1,
+            max_value=60.0,
+            value=25.3,
+            step=0.1,
+        )
+        plate_thickness_mm = st.number_input(
+            "PP thickness [mm]",
+            min_value=0.05,
+            max_value=5.0,
+            value=0.78,
+            step=0.01,
+        )
+        use_survey_geometry = st.checkbox(
+            "Derive geometry from survey",
+            disabled=survey is None,
+            key="use_survey_geometry",
+            help=(
+                "Uses stored water/PP distances when available. The fluid "
+                "height is derived from echo timing with the selected DMSO "
+                "sound speed."
+            ),
+        )
+
+        st.subheader("Transducer")
+        excitation_frequency_mhz = st.number_input(
+            "Excitation frequency [MHz]",
+            min_value=3.0,
+            max_value=12.0,
+            value=10.0,
+            step=0.1,
+        )
+        excitation_cycles = st.number_input(
+            "Pulse cycles",
+            min_value=0.5,
+            max_value=10.0,
+            value=1.0,
+            step=0.5,
+        )
+        transducer_diameter_mm = st.number_input(
+            "Aperture diameter [mm]",
+            min_value=1.0,
+            max_value=15.0,
+            value=13.0,
+            step=0.1,
+        )
+        transducer_focal_length_mm = st.number_input(
+            "Nominal focal length [mm]",
+            min_value=2.0,
+            max_value=60.0,
+            value=25.4,
+            step=0.1,
+        )
+        numerical_preset = st.selectbox(
+            "Calculation quality",
+            options=list(NUMERICAL_PRESETS),
+            index=0,
+            help="Fast is intended for exploration; Accurate uses the validated grid.",
+        )
+        submitted = st.form_submit_button(
+            "Simulate and optimize focus",
+            type="primary",
+            width="stretch",
+        )
+
+if submitted:
+    manual_inputs = SimulationInputs(
+        dmso_volume_percent=dmso_percent,
+        temperature_c=temperature_c,
+        water_path_mm=water_path_mm,
+        plate_thickness_mm=plate_thickness_mm,
+        fluid_height_mm=fluid_height_mm,
+        excitation_frequency_mhz=excitation_frequency_mhz,
+        excitation_cycles=excitation_cycles,
+        transducer_diameter_mm=transducer_diameter_mm,
+        transducer_focal_length_mm=transducer_focal_length_mm,
+        numerical_preset=numerical_preset,
+    )
+    try:
+        used_inputs, geometry_source = _used_geometry(
+            manual_inputs,
+            survey,
+            use_survey_geometry,
+        )
+        with st.spinner(
+            "Calculating the broadband echo and searching the focus…"
+        ):
+            st.session_state["simulation_result"] = simulate_cached(used_inputs)
+        st.session_state["simulation_survey"] = survey
+        st.session_state["geometry_source"] = geometry_source
+    except (ValueError, FloatingPointError) as exc:
+        st.error(f"Simulation could not be completed: {exc}")
+
+result = st.session_state.get("simulation_result")
+result_survey = st.session_state.get("simulation_survey")
+geometry_source = st.session_state.get(
+    "geometry_source",
+    "Manual geometry fields",
+)
+
+if result is None:
+    st.info(
+        "Set the parameters in the left panel and press "
+        "“Simulate and optimize focus”."
+    )
+    st.stop()
+
+metric_columns = st.columns(4)
+metric_columns[0].metric(
+    "Focus after PP",
+    f"{result.focus_after_pp_mm:.3f} mm",
+)
+offset = result.focus_offset_from_meniscus_mm
+offset_label = "below" if offset < 0.0 else "above"
+metric_columns[1].metric(
+    "Focus relative to meniscus",
+    f"{abs(offset):.3f} mm {offset_label}",
+)
+metric_columns[2].metric(
+    "Recommended water gap",
+    f"{result.optimal_water_path_mm:.3f} mm",
+    delta=f"{result.optimal_water_path_mm - result.inputs.water_path_mm:+.3f} mm",
+)
+metric_columns[3].metric(
+    "DMSO sound speed",
+    f"{result.dmso_properties.sound_speed_m_s:.1f} m/s",
+)
+
+if result.focus_scan_boundary_limited:
+    st.warning(
+        "The strongest point of the current axial scan lies on its boundary. "
+        "The transducer is probably focused at or before the PP exit; the "
+        "recommended water-gap search is the more useful focus result."
+    )
+st.caption(
+    f"Geometry used: {geometry_source}. "
+    f"The predicted gain at the meniscus from moving to the recommended gap is "
+    f"{result.optimal_water_path_gain_db:.2f} dB. This is a single-pass focus "
+    "criterion, kept separate from DMSO–air cavity interference."
+)
+
+pulse_tab, focus_tab, data_tab = st.tabs(
+    ["Pulse response", "Focus optimization", "Spectrum & downloads"]
+)
+with pulse_tab:
+    pulse_plot = pulse_figure(result, result_survey)
+    st.pyplot(pulse_plot, width="stretch")
+    st.subheader("Interface timing")
+    simulated_arrivals = result.arrivals.relative_to_water_pp_us
+    measured_arrivals = (
+        None
+        if result_survey is None
+        else _measured_arrivals_relative_us(result_survey)
+    )
+    timing_rows = []
+    for name, simulated_us in simulated_arrivals.items():
+        measured_us = (
+            None if measured_arrivals is None else measured_arrivals[name]
+        )
+        timing_rows.append(
+            {
+                "Interface": name,
+                "Simulation [µs]": round(simulated_us, 4),
+                "Survey [µs]": (
+                    "—" if measured_us is None else round(measured_us, 4)
+                ),
+                "Survey − simulation [µs]": (
+                    "—"
+                    if measured_us is None
+                    else round(measured_us - simulated_us, 4)
+                ),
+            }
+        )
+    st.dataframe(
+        timing_rows,
+        hide_index=True,
+        width="stretch",
+    )
+    st.caption(
+        "Times are relative to the water–PP marker. A timing residual can arise "
+        "from uncertain geometry, fluid concentration/temperature, PP sound "
+        "speed, interface picking, or fixed electronic delay."
+    )
+
+with focus_tab:
+    focus_plot = focus_figure(result)
+    st.pyplot(focus_plot, width="stretch")
+    st.markdown(
+        f"""
+        The current on-axis maximum is **{result.focus_from_aperture_mm:.3f} mm
+        from the aperture**. To maximize the predicted single-pass intensity at
+        the {result.inputs.fluid_height_mm:.3f} mm meniscus, set the water gap
+        to **{result.optimal_water_path_mm:.3f} mm**. The search includes the
+        PP transmission phase and DMSO sound speed at the selected temperature.
+        """
+    )
+
+with data_tab:
+    spectral_plot = spectrum_figure(result)
+    st.pyplot(spectral_plot, width="stretch")
+    summary = result_summary(
+        result,
+        result_survey,
+        geometry_source,
+    )
+    download_columns = st.columns(3)
+    download_columns[0].download_button(
+        "Download pulse plot (PNG)",
+        data=figure_png(pulse_plot),
+        file_name="pulse_echo_focus_lab.png",
+        mime="image/png",
+        width="stretch",
+    )
+    download_columns[1].download_button(
+        "Download signal data (CSV)",
+        data=result_csv(result, result_survey),
+        file_name="pulse_echo_focus_lab.csv",
+        mime="text/csv",
+        width="stretch",
+    )
+    download_columns[2].download_button(
+        "Download summary (JSON)",
+        data=json.dumps(summary, indent=2, ensure_ascii=False),
+        file_name="pulse_echo_focus_lab.json",
+        mime="application/json",
+        width="stretch",
+    )
+    with st.expander("Model assumptions"):
+        for assumption in summary["assumptions"]:
+            st.write(f"• {assumption}")

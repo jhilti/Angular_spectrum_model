@@ -1,0 +1,35 @@
+{
+  "frequency_hz": 10000000.0,
+  "geometry": {
+    "water_path_to_pp_front_m": 0.0253,
+    "pp_thickness_m": 0.00078,
+    "dmso_height_range_m": [
+      0.002,
+      0.003
+    ],
+    "backing": "air",
+    "meniscus": "planar"
+  },
+  "dmso": {
+    "volume_fraction": 0.8,
+    "temperature_c": 22.0,
+    "density_kg_m3": 1100.9881211326044,
+    "sound_speed_m_s": 1631.9793115170116
+  },
+  "interference": {
+    "strongest_maximum_height_m": 0.002032,
+    "strongest_minimum_height_m": 0.002062,
+    "maximum_gain_db": 0.6433353169068008,
+    "minimum_gain_db": -0.7137368204930921,
+    "peak_to_valley_db": 1.3570721373998929,
+    "dominant_fringe_period_m": 8.349999999999298e-05,
+    "half_wavelength_m": 8.159896557585059e-05
+  },
+  "normalization": "relative curves use the mean optimally focused single-pass intensity; W/m2 values assume 1 Pa aperture pressure",
+  "assumptions": [
+    "ideal phase-only refocusing to every meniscus height",
+    "forward-wave intensity immediately below the meniscus",
+    "flat DMSO-air interface",
+    "zero material attenuation because measured values were not supplied"
+  ]
+}

@@ -1,0 +1,58 @@
+{
+  "excitation": {
+    "center_frequency_hz": 10000000.0,
+    "cycles": 1.0,
+    "start_phase_deg": 0.0,
+    "time_zero": "positive-going zero crossing"
+  },
+  "geometry": {
+    "water_path_to_pp_front_m": 0.0253,
+    "pp_thickness_m": 0.00078,
+    "dmso_height_m": 0.00422,
+    "backing": "air"
+  },
+  "dmso": {
+    "volume_fraction": 0.8,
+    "temperature_c": 22.0,
+    "density_kg_m3": 1100.9881211326044,
+    "sound_speed_m_s": 1631.9793115170116
+  },
+  "transducer_certificate": {
+    "model": "Doppler I2-10P13F25-H",
+    "diameter_m": 0.013,
+    "focal_length_m": 0.0254,
+    "center_frequency_hz": 9970000.0,
+    "peak_frequency_hz": 11290000.0,
+    "fractional_bandwidth_6db_round_trip": 1.0822,
+    "lower_frequency_6db_hz": 4575233.0,
+    "upper_frequency_6db_hz": 15364767.000000002,
+    "pulse_duration_6db_s": 6.6e-08,
+    "response_application": "pulse-echo response applied once"
+  },
+  "timing": {
+    "geometric_water_pp_arrival_s": 3.399623757054555e-05,
+    "geometric_pp_dmso_arrival_s": 3.4567247819447454e-05,
+    "geometric_dmso_air_arrival_s": 3.973888200649764e-05,
+    "simulated_water_pp_peak_s": 3.4025e-05,
+    "simulated_pp_dmso_local_peak_s": 3.456875e-05,
+    "simulated_dmso_air_component_peak_s": 3.961875e-05
+  },
+  "relative_amplitudes": {
+    "plate_component_peak": 0.17226768319202082,
+    "dmso_air_component_peak": 0.12655277831173667,
+    "dmso_air_to_plate_peak_ratio": 0.7346286660782027,
+    "calibrated_absolute_units": false
+  },
+  "survey_overlay": {
+    "used": false,
+    "uses_absolute_adc_amplitude": false,
+    "used_to_fit_fluid_properties": false,
+    "warnings": []
+  },
+  "assumptions": [
+    "certificate magnitude represented by an asymmetric zero-phase Gaussian; certificate phase was unavailable",
+    "same reciprocal aperture used for transmit and receive",
+    "zero material attenuation because measured values were not supplied",
+    "no absolute ADC-to-pressure or receive-sensitivity calibration"
+  ]
+}

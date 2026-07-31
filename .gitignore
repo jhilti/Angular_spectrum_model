@@ -5,3 +5,6 @@ __pycache__/
 .pytest_cache/
 .matplotlib/
 .DS_Store
+tmp/
+results/private/
+.streamlit/secrets.toml
