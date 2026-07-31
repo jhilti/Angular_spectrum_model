@@ -60,6 +60,8 @@ asm-pp-case
 `streamlit_app.py` stellt die wichtigsten Parameter als Eingabefelder bereit
 und verbindet drei Auswertungen in einer Oberfläche:
 
+[**Pulse Echo Focus Lab im Browser öffnen**](https://angular-spectrum-model.streamlit.app/)
+
 - breitbandige Pulse-Echo-Antwort mit Wasser–PP, PP–DMSO und DMSO–Luft
 - qualitativer Overlay einer optional hochgeladenen Survey-JSON-Datei
 - aktuelle Fokuslage und Suche nach dem Wasserabstand, der die
