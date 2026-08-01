@@ -71,10 +71,33 @@ three analyses in one interface:
 
 [**Open Pulse Echo Focus Lab in your browser**](https://angular-spectrum-model.streamlit.app/)
 
+[![Live 2D acoustic stack showing the upward-facing transducer, Labcyte plate, liquid meniscus, and modeled focus](results/streamlit_acoustic_stack.png)](results/streamlit_acoustic_stack.png)
+
+The live cross-section follows the simulated water gap, plate-bottom thickness,
+well geometry, fill height, transducer aperture, and modeled focus. It is a
+scaled geometry drawing; the translucent cone illustrates convergence and is
+not a pressure-field heatmap.
+
 - Broadband pulse-echo response with water–PP, PP–DMSO, and DMSO–air echoes
 - Qualitative overlay of an optional uploaded survey JSON file
+- Labcyte plate dropdown with `PP-0200` (0.78 mm polypropylene) as the default
+- Dynamic 2D view of the upward-facing transducer, plate well, planar
+  meniscus, and current focal point
 - Current focal position and a search for the water gap that maximizes
   the monochromatic on-axis pressure-squared focus metric at the meniscus
+
+The bundled selector is an offline snapshot of the resolved
+[UK Robotics labware catalogue](https://labware.ukrobotics.app/SBSPlatesFlat.json)
+and retains direct links to each source record. Fifteen vetted commercial
+Labcyte variants are mapped to three distinct physical profiles: PP-0200,
+LP-0200, and LP-0400. Duplicate or internally inconsistent catalogue records
+are omitted. The catalogue provides nominal bottom/well geometry and a raw
+sound-speed field, but not density, Poisson ratio, attenuation, tolerances, or
+their frequency/temperature dependence. COC density therefore starts from the
+representative 1.02 g/cm³ value in the official
+[TOPAS COC product brochure](https://topas.com/wp-content/uploads/2023/05/TOPAS_Product-Brochure.pdf),
+while the COC Poisson ratio remains an editable modeling assumption. Verify
+these values and the physical bottom thickness before quantitative use.
 
 Run the interface locally with:
 
@@ -96,9 +119,10 @@ entrypoint. Subsequent changes to that branch are automatically reflected in
 the web app.
 
 The focus optimization varies the water gap and maximizes the monochromatic
-single-pass on-axis pressure-squared proxy at the planar meniscus. It includes the complex PP
-transmission and the DMSO sound speed, while deliberately keeping cavity
-interference separate from the focus metric. Water and DMSO properties both
+single-pass on-axis pressure-squared proxy at the planar meniscus. It includes
+the selected elastic-plate transmission and the DMSO sound speed, while
+deliberately keeping cavity interference separate from the focus metric.
+Water and DMSO properties both
 follow the selected temperature. Invalid grid/path combinations are rejected
 instead of silently clipping the required aperture spectrum.
 

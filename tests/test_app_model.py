@@ -35,9 +35,55 @@ class InteractiveAppModelTests(unittest.TestCase):
         self.assertLess(arrivals.water_pp_s, arrivals.pp_fluid_s)
         self.assertLess(arrivals.pp_fluid_s, arrivals.fluid_air_s)
         self.assertEqual(
-            arrivals.relative_to_water_pp_us["Water–PP"],
+            arrivals.relative_to_water_pp_us["Water–plate"],
             0.0,
         )
+
+    def test_interface_arrival_uses_selected_plate_speed(self) -> None:
+        polypropylene = interface_arrivals(
+            SimulationInputs(
+                plate_thickness_mm=1.0,
+                plate_longitudinal_speed_m_s=2732.0,
+            ),
+            fluid_sound_speed_m_s=1600.0,
+        )
+        coc = interface_arrivals(
+            SimulationInputs(
+                plate_thickness_mm=1.0,
+                plate_longitudinal_speed_m_s=2500.0,
+            ),
+            fluid_sound_speed_m_s=1600.0,
+        )
+        self.assertGreater(
+            coc.pp_fluid_s - coc.water_pp_s,
+            polypropylene.pp_fluid_s - polypropylene.water_pp_s,
+        )
+
+    def test_plate_material_inputs_build_selected_elastic_solid(self) -> None:
+        inputs = SimulationInputs(
+            plate_part_number="LP-0200",
+            plate_material_name="cyclic olefin copolymer",
+            plate_longitudinal_speed_m_s=2500.0,
+            plate_density_kg_m3=1020.0,
+            plate_poisson_ratio=0.40,
+            plate_thickness_mm=1.0,
+        )
+        model = _build_model(inputs)[0]
+        self.assertEqual(model.plate.solid.name, inputs.plate_material_name)
+        self.assertEqual(
+            model.plate.solid.longitudinal_speed_m_s,
+            inputs.plate_longitudinal_speed_m_s,
+        )
+        self.assertEqual(
+            model.plate.solid.density_kg_m3,
+            inputs.plate_density_kg_m3,
+        )
+
+    def test_invalid_plate_material_inputs_are_rejected(self) -> None:
+        with self.assertRaisesRegex(ValueError, "plate Poisson ratio"):
+            SimulationInputs(plate_poisson_ratio=0.5).validate()
+        with self.assertRaisesRegex(ValueError, "plate part number"):
+            SimulationInputs(plate_part_number=" ").validate()
 
     def test_water_arrival_uses_selected_temperature(self) -> None:
         cold = interface_arrivals(
