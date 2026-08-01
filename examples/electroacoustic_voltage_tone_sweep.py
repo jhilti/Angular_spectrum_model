@@ -317,16 +317,18 @@ def main() -> None:
         constrained_layout=True,
     )
     for cycles, result in results:
-        relative_time_us = (result.electrical.time_s - first_echo_s) * 1e6
+        time_since_excitation_us = (
+            result.electrical.time_s - BURST_START_S
+        ) * 1e6
         cycle_label = f"{cycles:g} cycle" + ("" if cycles == 1.0 else "s")
         axes[0].plot(
-            relative_time_us,
+            time_since_excitation_us,
             result.received_voltage_v,
             label=cycle_label,
         )
-    axes[0].set_xlim(-1.0, (surface_echo_s - first_echo_s) * 1e6 + 2.0)
+    axes[0].set_xlim(0.0, (surface_echo_s - BURST_START_S) * 1e6 + 2.0)
     axes[0].set(
-        xlabel="Time relative to water–PP echo [µs]",
+        xlabel="Time since excitation start [µs]",
         ylabel=receive_ylabel,
         title="Open-circuit-voltage-driven pulse echo",
     )

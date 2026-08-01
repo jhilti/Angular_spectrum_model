@@ -152,11 +152,12 @@ Doppler-I2-10P13F25-H probe: a 25.40 mm focus, 9.97 MHz center frequency,
 This two-way response is applied once; it is not incorrectly squared as
 separate one-way transmit and receive responses.
 
-The plot marks the water–PP, PP–DMSO, and first retained DMSO–air return
-separately. The frequency-dependent PP plate response continues to include its
-internal multiple reflections. Later liquid-cavity returns require a wider
-grid/record and a convergence check. All received signals remain normalized
-unless the electrical and acoustic paths have been calibrated.
+The ping time axis uses the excitation start as $t=0$. The plot marks the
+water–PP, PP–DMSO, and first retained DMSO–air return separately. The
+frequency-dependent PP plate response continues to include its internal
+multiple reflections. Later liquid-cavity returns require a wider grid/record
+and a convergence check. All received signals remain normalized unless the
+electrical and acoustic paths have been calibrated.
 
 ## Optional voltage and tone-length model
 

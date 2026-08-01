@@ -37,6 +37,12 @@ class SurveyPulseEcho:
     sample_index_start: int | None
 
     @property
+    def time_since_excitation_s(self) -> NDArray[np.float64]:
+        """Recorded sample times measured from the ping excitation start."""
+
+        return self.time_s
+
+    @property
     def relative_time_s(self) -> NDArray[np.float64]:
         """Sample times relative to the detected water-PP interface."""
 
