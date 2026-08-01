@@ -9,15 +9,28 @@ from angular_spectrum import (
     ElasticSolid,
     Fluid,
     FocusedCircularAperture,
+    dmso_water_properties,
     fwhm,
+    validate_focused_grid_support,
+    water_properties,
 )
 
 
 frequency_hz = 10.0e6
 water_path_m = 20.0e-3  # Replace with the measured front-face position.
 
-water = Fluid("water_22C", density_kg_m3=997.77, sound_speed_m_s=1488.4)
-dmso = Fluid("DMSO_22C", density_kg_m3=1098.4, sound_speed_m_s=1499.0)
+water_data = water_properties(22.0)
+dmso_data = dmso_water_properties(1.0, temperature_c=22.0)
+water = Fluid(
+    "water_22C",
+    density_kg_m3=water_data.density_kg_m3,
+    sound_speed_m_s=water_data.sound_speed_m_s,
+)
+dmso = Fluid(
+    "DMSO_22C",
+    density_kg_m3=dmso_data.density_kg_m3,
+    sound_speed_m_s=dmso_data.sound_speed_m_s,
+)
 polypropylene = ElasticSolid.from_longitudinal_speed_and_poisson(
     name="polypropylene",
     density_kg_m3=900.0,
@@ -29,7 +42,7 @@ model = AngularSpectrumModel(
     grid=CartesianGrid(nx=512, ny=512, dx_m=40e-6),
     aperture=FocusedCircularAperture(
         diameter_m=13.0e-3,
-        focal_length_m=25.0e-3,
+        focal_length_m=25.4e-3,
     ),
     incident_fluid=water,
     plate=ElasticPlate(polypropylene, thickness_m=0.78e-3),
@@ -38,6 +51,14 @@ model = AngularSpectrumModel(
 )
 
 z_after_plate_m = np.linspace(0.0, 10.0e-3, 161)
+validate_focused_grid_support(
+    model,
+    maximum_frequency_hz=frequency_hz,
+    propagation_segments=(
+        ("one-way water path", water, water_path_m),
+        ("one-way DMSO scan", dmso, float(z_after_plate_m[-1])),
+    ),
+)
 axis_pressure = model.on_axis_scan_after_plate(
     frequency_hz, z_after_plate_m
 )

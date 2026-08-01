@@ -14,8 +14,21 @@
   "dmso": {
     "volume_fraction": 0.8,
     "temperature_c": 22.0,
-    "density_kg_m3": 1100.9881211326044,
-    "sound_speed_m_s": 1631.9793115170116
+    "density_kg_m3": 1100.9878219368031,
+    "sound_speed_m_s": 1631.9958165935382
+  },
+  "incident_water": {
+    "temperature_c": 22.0,
+    "density_kg_m3": 997.8003203172385,
+    "sound_speed_m_s": 1488.3579112389878
+  },
+  "numerics": {
+    "grid_size": 384,
+    "grid_spacing_m": 8.5e-05,
+    "grid_window_m": 0.03264,
+    "grid_validation_frequency_hz": 25000000.0,
+    "record_length_s": 6e-05,
+    "fluid_cavity_echo_count": 1
   },
   "transducer_certificate": {
     "model": "Doppler I2-10P13F25-H",
@@ -30,17 +43,17 @@
     "response_application": "pulse-echo response applied once"
   },
   "timing": {
-    "geometric_water_pp_arrival_s": 3.399623757054555e-05,
-    "geometric_pp_dmso_arrival_s": 3.4567247819447454e-05,
-    "geometric_dmso_air_arrival_s": 3.973888200649764e-05,
+    "geometric_water_pp_arrival_s": 3.399719893844478e-05,
+    "geometric_pp_dmso_arrival_s": 3.456820918734668e-05,
+    "geometric_dmso_air_arrival_s": 3.9739791071433125e-05,
     "simulated_water_pp_peak_s": 3.4025e-05,
     "simulated_pp_dmso_local_peak_s": 3.456875e-05,
     "simulated_dmso_air_component_peak_s": 3.961875e-05
   },
   "relative_amplitudes": {
-    "plate_component_peak": 0.17226768319202082,
-    "dmso_air_component_peak": 0.12655277831173667,
-    "dmso_air_to_plate_peak_ratio": 0.7346286660782027,
+    "plate_component_peak": 0.17172154209062365,
+    "dmso_air_component_peak": 0.13444337880105484,
+    "dmso_air_to_plate_peak_ratio": 0.7829150446954652,
     "calibrated_absolute_units": false
   },
   "survey_overlay": {
@@ -52,6 +65,7 @@
   "assumptions": [
     "certificate magnitude represented by an asymmetric zero-phase Gaussian; certificate phase was unavailable",
     "same reciprocal aperture used for transmit and receive",
+    "only the first robust DMSO-air surface order is retained",
     "zero material attenuation because measured values were not supplied",
     "no absolute ADC-to-pressure or receive-sensitivity calibration"
   ]

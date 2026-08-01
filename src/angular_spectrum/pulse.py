@@ -8,7 +8,7 @@ from typing import Callable
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
-from .model import AngularSpectrumModel
+from .model import AngularSpectrumModel, validate_focused_grid_support
 
 
 @dataclass(frozen=True)
@@ -50,9 +50,15 @@ def square_burst(
         raise ValueError("sample_rate_hz must exceed twice the centre frequency")
 
     sample_count = int(np.ceil(record_length_s * sample_rate_hz))
+    duration = cycles / center_frequency_hz
+    available_end_s = sample_count / sample_rate_hz
+    tolerance_s = np.finfo(float).eps * max(available_end_s, 1.0)
+    if start_time_s + duration > available_end_s + tolerance_s:
+        raise ValueError(
+            "record_length_s is too short to contain the complete square burst"
+        )
     time = np.arange(sample_count, dtype=float) / sample_rate_hz
     local_time = time - start_time_s
-    duration = cycles / center_frequency_hz
     active = (local_time >= 0.0) & (local_time < duration)
     carrier = np.sin(2.0 * np.pi * center_frequency_hz * local_time)
     signal = np.zeros_like(time)
@@ -120,6 +126,30 @@ def asymmetric_gaussian_response(
     return np.exp(-np.log(2.0) * normalized_offset**2)
 
 
+def smooth_dc_block_response(
+    frequency_hz: ArrayLike,
+    *,
+    corner_frequency_hz: float = 1.0e6,
+    order: float = 4.0,
+) -> NDArray[np.float64]:
+    """Return a smooth zero-at-DC high-pass multiplier.
+
+    A magnitude-only Gaussian fitted to a pulse-echo certificate otherwise has
+    a nonzero DC tail. ``1 - exp(-(f/f_corner)**order)`` removes that
+    nonphysical tail without a discontinuous spectral edge. This still does
+    not supply the unknown measured system phase.
+    """
+
+    frequency = np.asarray(frequency_hz, dtype=float)
+    if np.any(~np.isfinite(frequency)) or np.any(frequency < 0.0):
+        raise ValueError("frequency_hz must be finite and >= 0")
+    if not np.isfinite(corner_frequency_hz) or corner_frequency_hz <= 0.0:
+        raise ValueError("corner_frequency_hz must be finite and > 0")
+    if not np.isfinite(order) or order <= 0.0:
+        raise ValueError("order must be finite and > 0")
+    return 1.0 - np.exp(-(frequency / corner_frequency_hz) ** order)
+
+
 def propagate_pulse_on_axis(
     model: AngularSpectrumModel,
     time_s: ArrayLike,
@@ -167,6 +197,8 @@ def propagate_pulse_on_axis(
         response = np.asarray(transducer_response(frequency), dtype=np.complex128)
     else:
         response = np.asarray(transducer_response, dtype=np.complex128)
+    if response.ndim == 0:
+        response = np.full(frequency.shape, response, dtype=np.complex128)
     if response.shape != frequency.shape:
         raise ValueError("transducer_response must match the rFFT frequency grid")
     if np.any(~np.isfinite(response)):
@@ -182,8 +214,53 @@ def propagate_pulse_on_axis(
     else:
         active[:] = False
 
+    active_indices = np.flatnonzero(active)
+    if active_indices.size and isinstance(model, AngularSpectrumModel):
+        magnitude = np.abs(drive)
+        driven_indices = np.flatnonzero(
+            magnitude > float(np.max(magnitude)) * 1.0e-12
+        )
+        if driven_indices.size:
+            last_drive_s = float(
+                time[driven_indices[-1]] - time[0] + delta_t[0]
+            )
+            drive_duration_s = float(
+                time[driven_indices[-1]]
+                - time[driven_indices[0]]
+                + delta_t[0]
+            )
+            nominal_delay_s = (
+                model.water_path_m / model.incident_fluid.sound_speed_m_s
+                + model.plate.thickness_m
+                / model.plate.solid.longitudinal_speed_m_s
+                + z_after_plate_m / model.transmitted_fluid.sound_speed_m_s
+            )
+            record_period_s = time.size * float(delta_t[0])
+            guard_s = max(drive_duration_s, 8.0 * float(delta_t[0]))
+            if last_drive_s + nominal_delay_s + guard_s > record_period_s:
+                raise ValueError(
+                    "the time record is too short to contain the propagated "
+                    "pulse and its guard; increase the record length"
+                )
+        validate_focused_grid_support(
+            model,
+            maximum_frequency_hz=float(frequency[active_indices[-1]]),
+            propagation_segments=(
+                (
+                    "one-way water path",
+                    model.incident_fluid,
+                    model.water_path_m,
+                ),
+                (
+                    "one-way transmitted-fluid path",
+                    model.transmitted_fluid,
+                    z_after_plate_m,
+                ),
+            ),
+        )
+
     output_spectrum = np.zeros_like(input_spectrum)
-    for index in np.flatnonzero(active):
+    for index in active_indices:
         transfer = model.on_axis_value_after_plate(
             float(frequency[index]), z_after_plate_m
         )

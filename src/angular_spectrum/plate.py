@@ -239,12 +239,24 @@ def elastic_plate_scattering_map(
     For an isotropic parallel plate both coefficients depend only on ``q``.
     Sampling it densely on a one-dimensional radial grid is much faster than
     solving a 6x6 system independently at every Cartesian FFT sample.
-    Set ``radial_samples=None`` for a direct solve at all supplied values.
+    Set ``radial_samples=None`` for an exact solve at every unique supplied
+    radius, without radial interpolation.
     """
 
     q = np.asarray(transverse_wavenumber_rad_m, dtype=float)
     if radial_samples is None:
-        return elastic_plate_scattering(q, frequency_hz, left, plate, right)
+        # A Cartesian FFT grid contains many repeated radii because the plate
+        # response depends on q = sqrt(kx**2 + ky**2), not on azimuth.  Solve
+        # each exactly represented radius once, then restore the input shape.
+        q_flat = q.reshape(-1)
+        q_unique, inverse = np.unique(q_flat, return_inverse=True)
+        reflection_unique, transmission_unique = elastic_plate_scattering(
+            q_unique, frequency_hz, left, plate, right
+        )
+        return (
+            reflection_unique[inverse].reshape(q.shape),
+            transmission_unique[inverse].reshape(q.shape),
+        )
     if radial_samples < 128:
         raise ValueError("radial_samples must be >= 128 or None")
     q_max = float(np.max(q))
@@ -296,16 +308,47 @@ def fluid_interface_scattering(
     left: Fluid,
     right: Fluid,
 ) -> tuple[ComplexArray, ComplexArray]:
-    """Return pressure scattering coefficients of a single fluid interface."""
+    """Return pressure scattering coefficients of a single fluid interface.
+
+    For normal particle-velocity admittance ``Y = k_z / rho``, the pressure
+    coefficients are ``R = (Y1-Y3)/(Y1+Y3)`` and
+    ``T = 2*Y1/(Y1+Y3)``.  If both fluids have the same wave speed, both
+    vertical wavenumbers vanish together at exact grazing incidence.  The
+    formulas then have a removable 0/0 singularity.  Cancelling their common
+    ``k_z`` gives the finite limits
+
+    ``R = (rho3-rho1)/(rho3+rho1)`` and
+    ``T = 2*rho3/(rho3+rho1)``.
+    """
 
     q = np.asarray(transverse_wavenumber_rad_m, dtype=float)
-    kz1 = vertical_wavenumber(left.wavenumber(frequency_hz), q)
-    kz3 = vertical_wavenumber(right.wavenumber(frequency_hz), q)
+    k1 = left.wavenumber(frequency_hz)
+    k3 = right.wavenumber(frequency_hz)
+    kz1 = vertical_wavenumber(k1, q)
+    kz3 = vertical_wavenumber(k3, q)
     admittance1 = kz1 / left.density_kg_m3
     admittance3 = kz3 / right.density_kg_m3
     denominator = admittance1 + admittance3
-    reflection = (admittance1 - admittance3) / denominator
-    transmission = 2.0 * admittance1 / denominator
+    with np.errstate(divide="ignore", invalid="ignore"):
+        reflection = (admittance1 - admittance3) / denominator
+        transmission = 2.0 * admittance1 / denominator
+
+    # sqrt(k**2-q**2) can retain a round-off-sized residue when q is supplied
+    # as a separately evaluated copy of k.  This tolerance covers only the
+    # numerically exact common-grazing point: its equivalent relative offset
+    # in q is of order machine precision.
+    wavenumber_scale = max(abs(k1), abs(k3), 1.0)
+    grazing_tolerance = np.sqrt(np.finfo(float).eps) * wavenumber_scale
+    common_grazing = (np.abs(kz1) <= grazing_tolerance) & (
+        np.abs(kz3) <= grazing_tolerance
+    )
+    density_sum = left.density_kg_m3 + right.density_kg_m3
+    reflection_limit = (
+        right.density_kg_m3 - left.density_kg_m3
+    ) / density_sum
+    transmission_limit = 2.0 * right.density_kg_m3 / density_sum
+    reflection = np.where(common_grazing, reflection_limit, reflection)
+    transmission = np.where(common_grazing, transmission_limit, transmission)
     return reflection, transmission
 
 

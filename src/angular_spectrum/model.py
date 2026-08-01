@@ -21,6 +21,97 @@ ComplexField = NDArray[np.complex128]
 FloatArray = NDArray[np.float64]
 
 
+def validate_focused_grid_support(
+    model: "AngularSpectrumModel",
+    *,
+    maximum_frequency_hz: float,
+    propagation_segments: Iterable[tuple[str, Fluid, float]],
+) -> None:
+    """Reject an FFT grid that must clip the intended focused beam.
+
+    The aperture-edge ray defines the largest transverse wavenumber required
+    by the prescribed focusing phase. It must fit both the transverse Nyquist
+    limit and the band-limited angular-spectrum support of each propagation
+    segment. The listed segments are consecutive parts of one optical/acoustic
+    path, so their aperture-edge walkoff is also checked cumulatively. This
+    check targets the focused beam itself; convergence of sharp aperture-edge
+    diffraction and plate resonances still requires a separate grid-refinement
+    study.
+    """
+
+    if not np.isfinite(maximum_frequency_hz) or maximum_frequency_hz <= 0.0:
+        raise ValueError("maximum_frequency_hz must be finite and > 0")
+    sine_edge_angle = model.aperture.radius_m / np.hypot(
+        model.aperture.focal_length_m,
+        model.aperture.radius_m,
+    )
+    q_edge = (
+        2.0
+        * np.pi
+        * maximum_frequency_hz
+        / model.incident_fluid.sound_speed_m_s
+        * sine_edge_angle
+    )
+    q_nyquist = min(
+        np.pi / model.grid.dx_m,
+        np.pi / model.grid.dy_m,
+    )
+    if q_edge >= q_nyquist:
+        raise ValueError(
+            "the selected grid undersamples the focused-aperture phase at "
+            f"{maximum_frequency_hz / 1e6:g} MHz; use a finer custom grid or "
+            "reduce aperture/steep focusing"
+        )
+
+    segments = tuple(propagation_segments)
+    cumulative_edge_walkoff_m = 0.0
+    for label, medium, distance_m in segments:
+        if not np.isfinite(distance_m) or distance_m < 0.0:
+            raise ValueError(
+                f"propagation distance for {label} must be finite and >= 0"
+            )
+        if distance_m == 0.0 or not model.bandlimit:
+            continue
+        k_real = 2.0 * np.pi * maximum_frequency_hz / medium.sound_speed_m_s
+        if q_edge >= k_real:
+            raise ValueError(
+                f"the focused aperture edge is evanescent in the {label}"
+            )
+        cumulative_edge_walkoff_m += (
+            distance_m * q_edge / np.sqrt(k_real**2 - q_edge**2)
+        )
+        supported_q = min(
+            k_real
+            / np.sqrt(
+                1.0
+                + (2.0 * distance_m / model.grid.extent_x_m) ** 2
+            ),
+            k_real
+            / np.sqrt(
+                1.0
+                + (2.0 * distance_m / model.grid.extent_y_m) ** 2
+            ),
+        )
+        if q_edge > supported_q:
+            raise ValueError(
+                f"the selected FFT window is too small for the {label}; "
+                "the band-limited propagator would clip rays from the "
+                "aperture edge. Use a larger-window custom grid, shorten the "
+                "path, or reduce aperture/steep focusing"
+            )
+    half_window_m = 0.5 * min(
+        model.grid.extent_x_m,
+        model.grid.extent_y_m,
+    )
+    if model.bandlimit and cumulative_edge_walkoff_m > half_window_m:
+        raise ValueError(
+            "the selected FFT window is too small for the combined layered "
+            "path: cumulative aperture-edge walkoff exceeds half the window; "
+            "use a larger-window grid, shorten the path, or reduce aperture/"
+            "steep focusing"
+        )
+
+
 @dataclass(frozen=True)
 class FocusedCircularAperture:
     """Planar equivalent of a uniformly driven focused circular transducer."""
@@ -133,6 +224,52 @@ class AngularSpectrumModel:
             transfer = np.where(supported, transfer, 0.0)
         return transfer.astype(np.complex128)
 
+    def _combined_bandlimit_mask(
+        self,
+        frequency_hz: float,
+        propagation_segments: Iterable[tuple[Fluid, float]],
+    ) -> NDArray[np.bool_]:
+        """Band limit a composed layered path by cumulative phase walkoff.
+
+        Multiplying separately band-limited segment propagators is not enough:
+        lateral phase gradients add across layers. This mask retains only FFT
+        modes whose cumulative x/y walkoff remains inside half the transverse
+        window. It reduces to the total-distance mask when all segments use
+        one medium.
+        """
+
+        kx, ky, q = self.grid.spectral_mesh()
+        if not self.bandlimit:
+            return np.ones(q.shape, dtype=bool)
+        walkoff_x = np.zeros(q.shape, dtype=float)
+        walkoff_y = np.zeros(q.shape, dtype=float)
+        supported = np.ones(q.shape, dtype=bool)
+        for medium, distance_m in propagation_segments:
+            if not np.isfinite(distance_m) or distance_m < 0.0:
+                raise ValueError(
+                    "combined propagation distances must be finite and >= 0"
+                )
+            if distance_m == 0.0:
+                continue
+            k_real = 2.0 * np.pi * frequency_hz / medium.sound_speed_m_s
+            propagating = q < k_real
+            kz_real = np.sqrt(np.maximum(k_real**2 - q**2, 0.0))
+            supported &= propagating
+            with np.errstate(divide="ignore", invalid="ignore"):
+                walkoff_x += np.where(
+                    propagating,
+                    distance_m * np.abs(kx) / kz_real,
+                    np.inf,
+                )
+                walkoff_y += np.where(
+                    propagating,
+                    distance_m * np.abs(ky) / kz_real,
+                    np.inf,
+                )
+        supported &= walkoff_x <= 0.5 * self.grid.extent_x_m
+        supported &= walkoff_y <= 0.5 * self.grid.extent_y_m
+        return supported
+
     def source_pressure(self, frequency_hz: float) -> ComplexField:
         return self.aperture.pressure_field(
             self.grid, frequency_hz, self.incident_fluid
@@ -190,6 +327,13 @@ class AngularSpectrumModel:
         propagated = spectrum * self._propagator(
             self.transmitted_fluid, frequency_hz, z_after_plate_m
         )
+        propagated *= self._combined_bandlimit_mask(
+            frequency_hz,
+            (
+                (self.incident_fluid, self.water_path_m),
+                (self.transmitted_fluid, z_after_plate_m),
+            ),
+        )
         return np.fft.ifft2(propagated)
 
     def reference_field(
@@ -199,6 +343,16 @@ class AngularSpectrumModel:
         propagated = spectrum * self._propagator(
             self.transmitted_fluid, frequency_hz, z_after_exit_m
         )
+        propagated *= self._combined_bandlimit_mask(
+            frequency_hz,
+            (
+                (
+                    self.incident_fluid,
+                    self.water_path_m + self.plate.thickness_m,
+                ),
+                (self.transmitted_fluid, z_after_exit_m),
+            ),
+        )
         return np.fft.ifft2(propagated)
 
     def _on_axis_scan_from_exit_spectrum(
@@ -207,6 +361,7 @@ class AngularSpectrumModel:
         frequency_hz: float,
         z_values_m: FloatArray,
         *,
+        incident_path_m: float | None = None,
         chunk_size: int = 8,
     ) -> ComplexField:
         if chunk_size < 1:
@@ -219,6 +374,8 @@ class AngularSpectrumModel:
         weighted_spectrum = exit_spectrum * centre_phase
         result = np.empty(z_values_m.size, dtype=np.complex128)
         normalization = self.grid.nx * self.grid.ny
+        if incident_path_m is None:
+            incident_path_m = self.water_path_m
 
         for start in range(0, z_values_m.size, chunk_size):
             z_chunk = z_values_m[start : start + chunk_size]
@@ -232,19 +389,25 @@ class AngularSpectrumModel:
                     / self.transmitted_fluid.sound_speed_m_s
                 )
                 for local_index, distance in enumerate(z_chunk):
-                    if distance <= 0.0:
-                        continue
-                    kx_limit = k_real / np.sqrt(
-                        1.0
-                        + (2.0 * distance / self.grid.extent_x_m) ** 2
-                    )
-                    ky_limit = k_real / np.sqrt(
-                        1.0
-                        + (2.0 * distance / self.grid.extent_y_m) ** 2
-                    )
-                    propagation[local_index] *= (
-                        (np.abs(kx) <= kx_limit)
-                        & (np.abs(ky) <= ky_limit)
+                    if distance > 0.0:
+                        kx_limit = k_real / np.sqrt(
+                            1.0
+                            + (2.0 * distance / self.grid.extent_x_m) ** 2
+                        )
+                        ky_limit = k_real / np.sqrt(
+                            1.0
+                            + (2.0 * distance / self.grid.extent_y_m) ** 2
+                        )
+                        propagation[local_index] *= (
+                            (np.abs(kx) <= kx_limit)
+                            & (np.abs(ky) <= ky_limit)
+                        )
+                    propagation[local_index] *= self._combined_bandlimit_mask(
+                        frequency_hz,
+                        (
+                            (self.incident_fluid, incident_path_m),
+                            (self.transmitted_fluid, float(distance)),
+                        ),
                     )
             result[start : start + z_chunk.size] = np.sum(
                 propagation * weighted_spectrum[None, :, :], axis=(1, 2)
@@ -278,7 +441,10 @@ class AngularSpectrumModel:
             raise ValueError("z_values_m must be finite and >= 0")
         spectrum = self.reference_spectrum_at_exit(frequency_hz)
         return self._on_axis_scan_from_exit_spectrum(
-            spectrum, frequency_hz, z
+            spectrum,
+            frequency_hz,
+            z,
+            incident_path_m=self.water_path_m + self.plate.thickness_m,
         )
 
     def on_axis_value_after_plate(
