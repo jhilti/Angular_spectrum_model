@@ -15,6 +15,7 @@ APP_PATH = Path(__file__).resolve().parents[1] / "streamlit_app.py"
 def _app() -> AppTest:
     app = AppTest.from_file(str(APP_PATH), default_timeout=180).run()
     assert not app.exception
+    assert not app.error
     return app
 
 

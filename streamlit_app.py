@@ -74,6 +74,14 @@ GEOMETRY_MODES = (
 COC_DENSITY_KG_M3 = 1020.0
 COC_POISSON_RATIO_ASSUMPTION = 0.40
 
+# Streamlit Community Cloud can hot-reload this entrypoint while retaining an
+# older imported project module in the same Python process. Fail clearly before
+# constructing inputs if a deployment ever mixes those two revisions.
+_MODEL_SCHEMA_COMPATIBLE = (
+    "fill_height_uncertainty_mm" in SimulationInputs.__dataclass_fields__
+    and "meniscus_cavity" in InteractiveSimulationResult.__dataclass_fields__
+)
+
 
 def _plate_material_defaults(material: str) -> tuple[str, float, float]:
     """Return explicit elastic defaults for one catalogue material."""
@@ -108,6 +116,13 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="auto",
 )
+if not _MODEL_SCHEMA_COMPATIBLE:
+    st.error(
+        "The app interface and acoustic model were loaded from different "
+        "deployment revisions. Reboot the app from Streamlit Cloud's "
+        "Manage app menu; a normal page refresh is not sufficient."
+    )
+    st.stop()
 st.markdown(
     """
     <style>
