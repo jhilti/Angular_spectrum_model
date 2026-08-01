@@ -1,1 +1,4 @@
+# Keep the project installation tied to the checked-out Streamlit deployment.
+# Updating this file forces Community Cloud to rebuild the editable package
+# when the entrypoint and internal model schema change together.
 -e .[app]
