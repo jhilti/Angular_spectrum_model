@@ -31,6 +31,9 @@ from angular_spectrum import (
     dmso_water_properties,
     simulate_monostatic_pulse_echo,
     sine_burst,
+    smooth_dc_block_response,
+    validate_focused_grid_support,
+    water_properties,
 )
 
 
@@ -49,6 +52,7 @@ TRANSDUCER_UPPER_FREQUENCY_6DB_HZ = (
 TRANSDUCER_PULSE_DURATION_6DB_S = 66.0e-9
 TRANSDUCER_FOCAL_LENGTH_M = 25.40e-3
 TRANSDUCER_DIAMETER_M = 13.0e-3
+GRID_VALIDATION_FREQUENCY_HZ = 25.0e6
 
 WATER_PATH_M = 25.3e-3
 PP_THICKNESS_M = 0.78e-3
@@ -57,7 +61,7 @@ DEFAULT_DMSO_VOLUME_PERCENT = 80.0
 DEFAULT_TEMPERATURE_C = 22.0
 
 SAMPLE_RATE_HZ = 160.0e6
-RECORD_LENGTH_S = 52.0e-6
+RECORD_LENGTH_S = 60.0e-6
 OUTPUT_DIRECTORY = Path("results")
 
 
@@ -210,7 +214,12 @@ def main() -> None:
         basis="volume",
         temperature_c=args.temperature_c,
     )
-    water = Fluid("water_22C", 997.77, 1488.4)
+    water_data = water_properties(args.temperature_c)
+    water = Fluid(
+        f"water_{args.temperature_c:g}C",
+        water_data.density_kg_m3,
+        water_data.sound_speed_m_s,
+    )
     dmso = Fluid(
         f"{args.dmso_percent:g}volpct_DMSO",
         dmso_properties.density_kg_m3,
@@ -224,7 +233,10 @@ def main() -> None:
         poisson_ratio=0.42,
     )
     model = AngularSpectrumModel(
-        grid=CartesianGrid(nx=384, ny=384, dx_m=50e-6),
+        # A two-way 25.3 mm water path needs a wider FFT window than a
+        # one-way focal-field plot. The 28.8 mm window retains the intended
+        # aperture-edge rays over the active pulse band.
+        grid=CartesianGrid(nx=384, ny=384, dx_m=85e-6),
         aperture=FocusedCircularAperture(
             diameter_m=TRANSDUCER_DIAMETER_M,
             focal_length_m=TRANSDUCER_FOCAL_LENGTH_M,
@@ -235,33 +247,17 @@ def main() -> None:
         water_path_m=WATER_PATH_M,
         plate_radial_samples=2048,
     )
-
-    time_s, drive = sine_burst(
-        center_frequency_hz=DRIVE_FREQUENCY_HZ,
-        cycles=1.0,
-        sample_rate_hz=SAMPLE_RATE_HZ,
-        record_length_s=RECORD_LENGTH_S,
-        start_time_s=0.0,
-    )
-
-    def certificate_round_trip_response(frequency: np.ndarray) -> np.ndarray:
-        return asymmetric_gaussian_response(
-            frequency,
-            peak_frequency_hz=TRANSDUCER_PEAK_FREQUENCY_HZ,
-            lower_frequency_6db_hz=TRANSDUCER_LOWER_FREQUENCY_6DB_HZ,
-            upper_frequency_6db_hz=TRANSDUCER_UPPER_FREQUENCY_6DB_HZ,
-        )
-
-    result = simulate_monostatic_pulse_echo(
+    validate_focused_grid_support(
         model,
-        time_s,
-        drive,
-        fluid_layer_thickness_m=dmso_height_m,
-        backing_fluid=air,
-        round_trip_response=certificate_round_trip_response,
-        relative_spectrum_threshold=2.0e-3,
-        minimum_frequency_hz=2.5e6,
-        maximum_frequency_hz=20.0e6,
+        maximum_frequency_hz=GRID_VALIDATION_FREQUENCY_HZ,
+        propagation_segments=(
+            ("water pulse-echo round trip", water, 2.0 * WATER_PATH_M),
+            (
+                "liquid-layer cavity round trip",
+                dmso,
+                2.0 * dmso_height_m,
+            ),
+        ),
     )
 
     front_arrival_s = 2.0 * WATER_PATH_M / water.sound_speed_m_s
@@ -275,6 +271,44 @@ def main() -> None:
         pp_back_arrival_s
         + 2.0 * dmso_height_m / dmso.sound_speed_m_s
     )
+    cavity_round_trip_s = 2.0 * dmso_height_m / dmso.sound_speed_m_s
+    drive_duration_s = 1.0 / DRIVE_FREQUENCY_HZ
+    record_length_s = max(
+        RECORD_LENGTH_S,
+        air_arrival_s
+        + 2.0 * drive_duration_s
+        + cavity_round_trip_s,
+    )
+
+    time_s, drive = sine_burst(
+        center_frequency_hz=DRIVE_FREQUENCY_HZ,
+        cycles=1.0,
+        sample_rate_hz=SAMPLE_RATE_HZ,
+        record_length_s=record_length_s,
+        start_time_s=0.0,
+    )
+
+    def certificate_round_trip_response(frequency: np.ndarray) -> np.ndarray:
+        return asymmetric_gaussian_response(
+            frequency,
+            peak_frequency_hz=TRANSDUCER_PEAK_FREQUENCY_HZ,
+            lower_frequency_6db_hz=TRANSDUCER_LOWER_FREQUENCY_6DB_HZ,
+            upper_frequency_6db_hz=TRANSDUCER_UPPER_FREQUENCY_6DB_HZ,
+        ) * smooth_dc_block_response(frequency)
+
+    result = simulate_monostatic_pulse_echo(
+        model,
+        time_s,
+        drive,
+        fluid_layer_thickness_m=dmso_height_m,
+        backing_fluid=air,
+        round_trip_response=certificate_round_trip_response,
+        relative_spectrum_threshold=2.0e-3,
+        minimum_frequency_hz=0.0,
+        maximum_frequency_hz=GRID_VALIDATION_FREQUENCY_HZ,
+        fluid_cavity_echo_count=1,
+    )
+
     front_peak_s = peak_time(
         result.time_s,
         result.plate_front_signal,
@@ -335,7 +369,7 @@ def main() -> None:
         received,
         color="#355f8a",
         linewidth=0.9,
-        label="Simulation, normiert",
+        label="Simulation, normalized",
     )
     axes[0].plot(
         relative_time_us,
@@ -343,7 +377,7 @@ def main() -> None:
         color="#d1495b",
         linewidth=1.0,
         alpha=0.85,
-        label="Simulationshüllkurve",
+        label="Simulation envelope",
     )
     axes[0].plot(
         relative_time_us,
@@ -360,14 +394,14 @@ def main() -> None:
             color="0.25",
             linewidth=0.75,
             alpha=0.72,
-            label="Messung, ADC separat normiert",
+            label="Measurement, ADC normalized separately",
         )
     axes[0].axvline(
         0.0,
         color="0.45",
         linestyle="--",
         linewidth=1.0,
-        label="Wasser–PP",
+        label="water–PP",
     )
     axes[0].axvline(
         pp_back_relative_us,
@@ -379,11 +413,11 @@ def main() -> None:
     axes[0].set(
         xlim=(-0.5, 1.5),
         ylim=(-1.2, 1.2),
-        xlabel="Zeit relativ zu Wasser–PP [µs]",
-        ylabel="Signal [separat normiert]",
+        xlabel="Time relative to water–PP [µs]",
+        ylabel="Signal [normalized separately]",
         title=(
-            "Nahansicht der beiden PP-Grenzflächen "
-            f"({args.dmso_percent:g} Vol.-% DMSO)"
+            "Close view of the two PP interfaces "
+            f"({args.dmso_percent:g} vol.% DMSO)"
         ),
     )
     axes[0].legend(loc="upper right", ncols=2)
@@ -393,14 +427,14 @@ def main() -> None:
         received,
         color="#355f8a",
         linewidth=0.75,
-        label="Mikrofonsignal",
+        label="received signal",
     )
     axes[1].plot(
         relative_time_us,
         envelope,
         color="#d1495b",
         linewidth=1.1,
-        label="Hüllkurve",
+        label="envelope",
     )
     axes[1].plot(
         relative_time_us,
@@ -409,9 +443,9 @@ def main() -> None:
         linewidth=1.1,
     )
     interface_markers = [
-        (0.0, "--", "0.45", "Wasser–PP"),
+        (0.0, "--", "0.45", "water–PP"),
         (pp_back_relative_us, ":", "#d1495b", "PP–DMSO"),
-        (air_relative_us, "-.", "#2a9d8f", "DMSO–Luft"),
+        (air_relative_us, "-.", "#2a9d8f", "DMSO–air"),
     ]
     for arrival_us, linestyle, color, label in interface_markers:
         axes[1].axvline(
@@ -424,22 +458,22 @@ def main() -> None:
     full_view_end_us = max(air_relative_us + 2.0, 8.0)
     axes[1].set(
         xlim=(-0.5, full_view_end_us),
-        xlabel="Zeit relativ zu Wasser–PP [µs]",
-        ylabel="Empfang [normiert]",
-        title="Vollständige Pulse-Echo-Antwort mit drei Grenzflächen",
+        xlabel="Time relative to water–PP [µs]",
+        ylabel="Received signal [normalized]",
+        title="Complete pulse-echo response with three interfaces",
     )
     axes[1].legend(loc="upper right", ncols=2)
 
     axes[2].plot(
         relative_time_us,
         plate_envelope,
-        label="gesamte PP-Plattenantwort",
+        label="complete PP plate response",
         color="#355f8a",
     )
     axes[2].plot(
         relative_time_us,
         backing_envelope,
-        label="DMSO–Luft inkl. Kavitätsnachhall",
+        label="first retained DMSO–air return",
         color="#d1495b",
     )
     for arrival_us, linestyle, color, _ in interface_markers:
@@ -451,9 +485,9 @@ def main() -> None:
         )
     axes[2].set(
         xlim=(-0.5, full_view_end_us),
-        xlabel="Zeit relativ zu Wasser–PP [µs]",
-        ylabel="Hüllkurve [normiert]",
-        title="Physikalische Modellkomponenten",
+        xlabel="Time relative to water–PP [µs]",
+        ylabel="Envelope [normalized]",
+        title="Physical model components",
     )
     axes[2].legend(loc="upper right")
     for axis in axes:
@@ -473,8 +507,11 @@ def main() -> None:
         frequency_hz=result.frequency_hz,
         received_spectrum=result.received_spectrum,
         electroacoustic_response=result.electroacoustic_response,
+        physical_round_trip_phasor=result.physical_round_trip_phasor,
+        applied_round_trip_transfer=result.applied_round_trip_transfer,
         round_trip_transfer=result.round_trip_transfer,
         simulated_bin_mask=result.simulated_bin_mask,
+        fluid_cavity_echo_count=result.fluid_cavity_echo_count,
     )
 
     front_peak = float(np.max(np.abs(result.plate_front_signal)))
@@ -497,6 +534,19 @@ def main() -> None:
             "temperature_c": args.temperature_c,
             "density_kg_m3": dmso.density_kg_m3,
             "sound_speed_m_s": dmso.sound_speed_m_s,
+        },
+        "incident_water": {
+            "temperature_c": args.temperature_c,
+            "density_kg_m3": water.density_kg_m3,
+            "sound_speed_m_s": water.sound_speed_m_s,
+        },
+        "numerics": {
+            "grid_size": model.grid.nx,
+            "grid_spacing_m": model.grid.dx_m,
+            "grid_window_m": model.grid.extent_x_m,
+            "grid_validation_frequency_hz": GRID_VALIDATION_FREQUENCY_HZ,
+            "record_length_s": record_length_s,
+            "fluid_cavity_echo_count": result.fluid_cavity_echo_count,
         },
         "transducer_certificate": {
             "model": "Doppler I2-10P13F25-H",
@@ -540,6 +590,7 @@ def main() -> None:
                 "Gaussian; certificate phase was unavailable"
             ),
             "same reciprocal aperture used for transmit and receive",
+            "only the first robust DMSO-air surface order is retained",
             "zero material attenuation because measured values were not supplied",
             "no absolute ADC-to-pressure or receive-sensitivity calibration",
         ],
@@ -549,20 +600,20 @@ def main() -> None:
     ) as handle:
         json.dump(summary, handle, indent=2, ensure_ascii=False)
 
-    print(f"Wasser–PP geometrisch: {front_arrival_s * 1e6:.3f} µs")
-    print(f"PP–DMSO geometrisch:   {pp_back_arrival_s * 1e6:.3f} µs")
-    print(f"DMSO–Luft geometrisch: {air_arrival_s * 1e6:.3f} µs")
+    print(f"Geometric water–PP arrival: {front_arrival_s * 1e6:.3f} µs")
+    print(f"Geometric PP–DMSO arrival: {pp_back_arrival_s * 1e6:.3f} µs")
+    print(f"Geometric DMSO–air arrival: {air_arrival_s * 1e6:.3f} µs")
     if survey_overlay is not None:
         _, _, survey_interfaces_us = survey_overlay
         print(
-            "Survey-Zeiten relativ zu Wasser–PP:",
+            "Survey times relative to water–PP:",
             ", ".join(
                 f"{name}={value:.3f} µs"
                 for name, value in survey_interfaces_us.items()
             ),
         )
         for warning in survey_warnings:
-            print(f"Survey-Hinweis: {warning}")
+            print(f"Survey note: {warning}")
     print(f"Plot: {figure_path.resolve()}")
 
 

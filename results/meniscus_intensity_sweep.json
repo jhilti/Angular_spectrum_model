@@ -7,28 +7,41 @@
       0.002,
       0.003
     ],
+    "transducer_diameter_m": 0.013,
+    "transducer_focal_length_m": 0.0254,
     "backing": "air",
     "meniscus": "planar"
   },
   "dmso": {
     "volume_fraction": 0.8,
     "temperature_c": 22.0,
-    "density_kg_m3": 1100.9881211326044,
-    "sound_speed_m_s": 1631.9793115170116
+    "density_kg_m3": 1100.987821936803,
+    "sound_speed_m_s": 1631.9958165935382
   },
   "interference": {
     "strongest_maximum_height_m": 0.002032,
     "strongest_minimum_height_m": 0.002062,
-    "maximum_gain_db": 0.6433353169068008,
-    "minimum_gain_db": -0.7137368204930921,
-    "peak_to_valley_db": 1.3570721373998929,
+    "maximum_gain_db": 0.6017582036065797,
+    "minimum_gain_db": -0.7188360842549334,
+    "peak_to_valley_db": 1.3205942878615131,
     "dominant_fringe_period_m": 8.349999999999298e-05,
-    "half_wavelength_m": 8.159896557585059e-05
+    "half_wavelength_m": 8.159979082967691e-05
   },
   "normalization": "relative curves use the mean optimally focused single-pass intensity; W/m2 values assume 1 Pa aperture pressure",
+  "scope": {
+    "pressure_phase_optimized_independently_per_height": true,
+    "phase_only_pressure_upper_bound": true,
+    "strict_intensity_upper_bound": false,
+    "cavity_relative_tolerance": 1e-08,
+    "maximum_cavity_orders_retained": 19,
+    "all_cavity_series_converged": true,
+    "steady_state_monochromatic": true,
+    "one_cycle_pulse_interpretation": "the first surface interaction precedes the first liquid-cavity return by 25-38 cycles over this height range; CW fringes do not select the peak of that isolated first interaction"
+  },
   "assumptions": [
-    "ideal phase-only refocusing to every meniscus height",
-    "forward-wave intensity immediately below the meniscus",
+    "phase-only on-axis pressure optimization at every meniscus height",
+    "signed forward-wave axial flux immediately below the meniscus",
+    "total pressure, velocity, and first-order oscillatory displacement are also stored in the NPZ",
     "flat DMSO-air interface",
     "zero material attenuation because measured values were not supplied"
   ]

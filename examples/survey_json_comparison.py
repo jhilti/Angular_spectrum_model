@@ -32,6 +32,9 @@ from angular_spectrum import (
     load_survey_pulse_echo,
     simulate_monostatic_pulse_echo,
     sine_burst,
+    smooth_dc_block_response,
+    validate_focused_grid_support,
+    water_properties,
 )
 
 
@@ -50,14 +53,13 @@ TRANSDUCER_UPPER_FREQUENCY_6DB_HZ = (
 TRANSDUCER_FOCAL_LENGTH_M = 25.40e-3
 TRANSDUCER_DIAMETER_M = 13.0e-3
 
-WATER_SOUND_SPEED_M_S = 1488.4
-WATER_DENSITY_KG_M3 = 997.77
 PP_LONGITUDINAL_SPEED_M_S = 2732.0
 PP_DENSITY_KG_M3 = 900.0
 PP_POISSON_RATIO = 0.42
 
 SAMPLE_RATE_HZ = 160.0e6
-RECORD_LENGTH_S = 42.0e-6
+RECORD_LENGTH_S = 60.0e-6
+GRID_VALIDATION_FREQUENCY_HZ = 25.0e6
 DEFAULT_OUTPUT_DIRECTORY = Path("results/private")
 
 
@@ -300,9 +302,10 @@ def main() -> None:
         basis="volume",
         temperature_c=args.temperature_c,
     )
+    water_data = water_properties(args.temperature_c)
     geometry = interpret_survey_geometry(
         survey,
-        incident_sound_speed_m_s=WATER_SOUND_SPEED_M_S,
+        incident_sound_speed_m_s=water_data.sound_speed_m_s,
         plate_longitudinal_speed_m_s=PP_LONGITUDINAL_SPEED_M_S,
         fluid_sound_speed_m_s=dmso_properties.sound_speed_m_s,
     )
@@ -324,9 +327,9 @@ def main() -> None:
     simulation_fluid_height_m = geometry.tof_fluid_height_m
 
     water = Fluid(
-        "water",
-        WATER_DENSITY_KG_M3,
-        WATER_SOUND_SPEED_M_S,
+        f"water_{args.temperature_c:g}C",
+        water_data.density_kg_m3,
+        water_data.sound_speed_m_s,
     )
     dmso = Fluid(
         f"assumed_{args.dmso_percent:g}volpct_DMSO",
@@ -348,7 +351,9 @@ def main() -> None:
         attenuation_reference_hz=DRIVE_FREQUENCY_HZ,
     )
     model = AngularSpectrumModel(
-        grid=CartesianGrid(nx=320, ny=320, dx_m=50e-6),
+        # The survey comparison is pulse echo, so its FFT window must support
+        # the complete water round trip rather than only the one-way focus.
+        grid=CartesianGrid(nx=320, ny=320, dx_m=110e-6),
         aperture=FocusedCircularAperture(
             diameter_m=TRANSDUCER_DIAMETER_M,
             focal_length_m=TRANSDUCER_FOCAL_LENGTH_M,
@@ -359,36 +364,24 @@ def main() -> None:
         water_path_m=simulation_water_path_m,
         plate_radial_samples=1536,
     )
-    time_s, drive = sine_burst(
-        center_frequency_hz=DRIVE_FREQUENCY_HZ,
-        cycles=1.0,
-        sample_rate_hz=SAMPLE_RATE_HZ,
-        record_length_s=RECORD_LENGTH_S,
-        start_time_s=0.0,
-    )
-
-    def certificate_round_trip_response(frequency: np.ndarray) -> np.ndarray:
-        return asymmetric_gaussian_response(
-            frequency,
-            peak_frequency_hz=TRANSDUCER_PEAK_FREQUENCY_HZ,
-            lower_frequency_6db_hz=TRANSDUCER_LOWER_FREQUENCY_6DB_HZ,
-            upper_frequency_6db_hz=TRANSDUCER_UPPER_FREQUENCY_6DB_HZ,
-        )
-
-    simulated = simulate_monostatic_pulse_echo(
+    validate_focused_grid_support(
         model,
-        time_s,
-        drive,
-        fluid_layer_thickness_m=simulation_fluid_height_m,
-        backing_fluid=air,
-        round_trip_response=certificate_round_trip_response,
-        relative_spectrum_threshold=2.0e-3,
-        minimum_frequency_hz=2.5e6,
-        maximum_frequency_hz=20.0e6,
+        maximum_frequency_hz=GRID_VALIDATION_FREQUENCY_HZ,
+        propagation_segments=(
+            (
+                "water pulse-echo round trip",
+                water,
+                2.0 * simulation_water_path_m,
+            ),
+            (
+                "liquid-layer cavity round trip",
+                dmso,
+                2.0 * simulation_fluid_height_m,
+            ),
+        ),
     )
-
     simulated_water_pp_s = (
-        2.0 * simulation_water_path_m / WATER_SOUND_SPEED_M_S
+        2.0 * simulation_water_path_m / water.sound_speed_m_s
     )
     simulated_pp_fluid_s = (
         simulated_water_pp_s
@@ -402,6 +395,45 @@ def main() -> None:
         * simulation_fluid_height_m
         / dmso_properties.sound_speed_m_s
     )
+    cavity_round_trip_s = (
+        2.0 * simulation_fluid_height_m / dmso.sound_speed_m_s
+    )
+    drive_duration_s = 1.0 / DRIVE_FREQUENCY_HZ
+    record_length_s = max(
+        RECORD_LENGTH_S,
+        simulated_fluid_top_s
+        + 2.0 * drive_duration_s
+        + max(8.0e-6, cavity_round_trip_s),
+    )
+    time_s, drive = sine_burst(
+        center_frequency_hz=DRIVE_FREQUENCY_HZ,
+        cycles=1.0,
+        sample_rate_hz=SAMPLE_RATE_HZ,
+        record_length_s=record_length_s,
+        start_time_s=0.0,
+    )
+
+    def certificate_round_trip_response(frequency: np.ndarray) -> np.ndarray:
+        return asymmetric_gaussian_response(
+            frequency,
+            peak_frequency_hz=TRANSDUCER_PEAK_FREQUENCY_HZ,
+            lower_frequency_6db_hz=TRANSDUCER_LOWER_FREQUENCY_6DB_HZ,
+            upper_frequency_6db_hz=TRANSDUCER_UPPER_FREQUENCY_6DB_HZ,
+        ) * smooth_dc_block_response(frequency)
+
+    simulated = simulate_monostatic_pulse_echo(
+        model,
+        time_s,
+        drive,
+        fluid_layer_thickness_m=simulation_fluid_height_m,
+        backing_fluid=air,
+        round_trip_response=certificate_round_trip_response,
+        relative_spectrum_threshold=2.0e-3,
+        minimum_frequency_hz=0.0,
+        maximum_frequency_hz=GRID_VALIDATION_FREQUENCY_HZ,
+        fluid_cavity_echo_count=1,
+    )
+
     measured_arrivals = {
         "water_pp": survey.water_pp_time_s,
         "pp_fluid": survey.pp_fluid_time_s,
@@ -773,7 +805,7 @@ def main() -> None:
             - 2.0
             * args.known_water_path_mm
             * 1e-3
-            / WATER_SOUND_SPEED_M_S
+            / water.sound_speed_m_s
         )
     summary = {
         "survey": {
@@ -789,6 +821,11 @@ def main() -> None:
             "sound_speed_m_s": dmso_properties.sound_speed_m_s,
             "density_kg_m3": dmso_properties.density_kg_m3,
             "metadata_supports_hypothesis": False,
+        },
+        "incident_water": {
+            "temperature_c": args.temperature_c,
+            "sound_speed_m_s": water_data.sound_speed_m_s,
+            "density_kg_m3": water_data.density_kg_m3,
         },
         "material_attenuation": {
             "reference_frequency_hz": DRIVE_FREQUENCY_HZ,
@@ -826,6 +863,15 @@ def main() -> None:
             "known_water_path_trigger_delay_s": (
                 known_water_path_trigger_delay_s
             ),
+        },
+        "numerics": {
+            "grid_size": model.grid.nx,
+            "grid_spacing_m": model.grid.dx_m,
+            "grid_window_m": model.grid.extent_x_m,
+            "grid_validation_frequency_hz": GRID_VALIDATION_FREQUENCY_HZ,
+            "sample_rate_hz": SAMPLE_RATE_HZ,
+            "record_length_s": record_length_s,
+            "fluid_cavity_echo_count": simulated.fluid_cavity_echo_count,
         },
         "comparison": {
             "signals_normalized_independently": True,

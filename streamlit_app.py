@@ -23,11 +23,11 @@ from angular_spectrum import (
     estimate_reference_transfer,
     interpret_survey_geometry,
     parse_survey_pulse_echo,
+    water_properties,
 )
 from angular_spectrum.app_model import (
     NUMERICAL_PRESETS,
     PP_LONGITUDINAL_SPEED_M_S,
-    WATER_SOUND_SPEED_M_S,
     InteractiveSimulationResult,
     SimulationInputs,
     analytic_envelope,
@@ -599,9 +599,10 @@ def _used_geometry(
         basis="volume",
         temperature_c=manual_inputs.temperature_c,
     )
+    water = water_properties(manual_inputs.temperature_c)
     geometry = interpret_survey_geometry(
         survey,
-        incident_sound_speed_m_s=WATER_SOUND_SPEED_M_S,
+        incident_sound_speed_m_s=water.sound_speed_m_s,
         plate_longitudinal_speed_m_s=PP_LONGITUDINAL_SPEED_M_S,
         fluid_sound_speed_m_s=properties.sound_speed_m_s,
     )
@@ -832,7 +833,7 @@ def pulse_figure(
     )
     axes[1].plot(
         result.time_relative_us,
-        result.envelope_normalized,
+        signals.envelope,
         color=COLORS["red"],
         linewidth=1.35,
         label="Simulation envelope",
@@ -931,8 +932,8 @@ def focus_figure(result: InteractiveSimulationResult) -> plt.Figure:
     )
     axes[0].set(
         xlabel="Position after PP [mm]",
-        ylabel="On-axis intensity [normalized]",
-        title="Current axial focus",
+        ylabel="Relative on-axis |p|² [normalized]",
+        title="Monochromatic current focus",
     )
     axes[0].legend(frameon=False, fontsize=8.5)
 
@@ -963,8 +964,8 @@ def focus_figure(result: InteractiveSimulationResult) -> plt.Figure:
     )
     axes[1].set(
         xlabel="Water gap to PP [mm]",
-        ylabel="Intensity at meniscus [normalized]",
-        title="Focus optimization at the meniscus",
+        ylabel="Relative meniscus |p|² [normalized]",
+        title="Monochromatic focus optimization",
     )
     axes[1].legend(frameon=False, fontsize=8.5)
     for axis in axes:
@@ -1065,6 +1066,7 @@ def result_summary(
     return {
         "inputs": asdict(result.inputs),
         "geometry_source": geometry_source,
+        "water_properties": asdict(result.water_properties),
         "dmso_properties": asdict(result.dmso_properties),
         "arrivals_relative_to_water_pp_us": (
             result.arrivals.relative_to_water_pp_us
@@ -1081,11 +1083,18 @@ def result_summary(
             "optimal_water_path_mm_for_meniscus": (
                 result.optimal_water_path_mm
             ),
+            "optimal_meniscus_intensity_fwhm_mm": (
+                result.optimal_meniscus_intensity_fwhm_mm
+            ),
+            "optimal_water_path_boundary_limited": (
+                result.optimal_water_path_boundary_limited
+            ),
             "predicted_gain_from_water_path_adjustment_db": (
                 result.optimal_water_path_gain_db
             ),
             "criterion": (
-                "maximum single-pass on-axis intensity at the planar meniscus"
+                "maximum center-frequency single-pass on-axis pressure squared "
+                "at the planar meniscus"
             ),
         },
         "survey": {
@@ -1094,6 +1103,19 @@ def result_summary(
             "fluid_material": (
                 None if survey is None else survey.fluid_material
             ),
+            "probe_frequency_hz": (
+                None if survey is None else survey.probe_frequency_hz
+            ),
+            "tone_length_cycles": (
+                None if survey is None else survey.tone_length_cycles
+            ),
+            "probe_voltage_setting_v": (
+                None if survey is None else survey.probe_voltage_setting_v
+            ),
+            "sample_index_start": (
+                None if survey is None else survey.sample_index_start
+            ),
+            "excitation_metadata_is_calibrated": False,
             "absolute_adc_calibrated": False,
             "signals_normalized_independently": survey is not None,
             "water_pp_reference_calibration": {
@@ -1124,6 +1146,7 @@ def result_summary(
         },
         "numerics": {
             "simulated_frequency_bins": result.simulated_frequency_bin_count,
+            "fluid_cavity_echo_count": result.fluid_cavity_echo_count,
             "preset": result.inputs.numerical_preset,
         },
         "assumptions": [
@@ -1133,7 +1156,8 @@ def result_summary(
             "the focus optimization excludes DMSO-air cavity interference",
             (
                 "the transducer certificate magnitude is represented by a "
-                "zero-phase asymmetric Gaussian"
+                "zero-phase asymmetric Gaussian; small symmetric pre-ringing "
+                "is numerical/model uncertainty, not a physical precursor"
             ),
             (
                 "a water-PP reference correction, when enabled, is a common "
@@ -1471,6 +1495,31 @@ if shown_signals.calibration_error is not None:
         "The water–PP reference correction could not be applied: "
         f"{shown_signals.calibration_error}. Raw simulation traces are shown."
     )
+if result_survey is not None:
+    mismatch_notes = []
+    if result_survey.probe_frequency_hz is not None and not np.isclose(
+        result_survey.probe_frequency_hz,
+        result.inputs.excitation_frequency_mhz * 1e6,
+        rtol=0.01,
+    ):
+        mismatch_notes.append(
+            f"survey frequency {result_survey.probe_frequency_hz / 1e6:g} MHz"
+        )
+    if result_survey.tone_length_cycles is not None and not np.isclose(
+        result_survey.tone_length_cycles,
+        result.inputs.excitation_cycles,
+        rtol=0.01,
+    ):
+        mismatch_notes.append(
+            f"survey tone length {result_survey.tone_length_cycles:g} cycles"
+        )
+    if mismatch_notes:
+        st.warning(
+            "The simulation excitation differs from the uploaded survey: "
+            + ", ".join(mismatch_notes)
+            + ". Timing can still be compared, but waveform shape is not a "
+            "like-for-like validation."
+        )
 
 offset = result.focus_offset_from_meniscus_mm
 offset_label = "below" if offset < 0.0 else "above"
@@ -1506,10 +1555,11 @@ st.markdown(
             <div class="metric-hint">{offset_label} the fluid surface</div>
         </div>
         <div class="metric-card">
-            <div class="metric-label">Recommended water gap</div>
-            <div class="metric-value">{result.optimal_water_path_mm:.3f} mm</div>
+            <div class="metric-label">Modeled water-gap optimum</div>
+            <div class="metric-value">{result.optimal_water_path_mm:.2f} mm</div>
             <div class="metric-hint positive">
-                Adjust current gap by {water_gap_delta:+.3f} mm
+                Adjust by {water_gap_delta:+.2f} mm · modeled intensity FWHM
+                {result.optimal_meniscus_intensity_fwhm_mm:.3f} mm
             </div>
         </div>
         <div class="metric-card">
@@ -1533,13 +1583,21 @@ if result.focus_scan_boundary_limited:
         "The transducer is probably focused at or before the PP exit; the "
         "recommended water-gap search is the more useful focus result."
     )
+if result.optimal_water_path_boundary_limited:
+    st.warning(
+        "The best water gap lies on the search boundary, so it is not a "
+        "resolved optimum. Use a larger-window custom calculation before "
+        "changing the hardware geometry."
+    )
 st.markdown(
     f"""
     <div class="model-note">
-        Geometry: {geometry_source}. Moving to the recommended water gap gives
-        a predicted meniscus gain of
+        Geometry: {geometry_source}. The modeled optimum changes the relative
+        single-pass focus metric by
         <strong>{result.optimal_water_path_gain_db:.2f} dB</strong>.
-        DMSO–air cavity interference is kept separate from this focus metric.
+        This is monochromatic, uncalibrated |p|²—not an ADE efficiency or
+        ejection-threshold prediction. DMSO–air cavity interference is kept
+        separate.
     </div>
     """,
     unsafe_allow_html=True,
@@ -1661,7 +1719,7 @@ with focus_tab:
             </div>
             <p>
                 Separate the current axial maximum from the water gap that
-                maximizes intensity at the meniscus.
+                maximizes center-frequency pressure squared at the meniscus.
             </p>
         </div>
         """,
@@ -1675,10 +1733,11 @@ with focus_tab:
             The current on-axis maximum is
             <strong>{result.focus_from_aperture_mm:.3f} mm from the
             aperture</strong>. For the {result.inputs.fluid_height_mm:.3f} mm
-            meniscus, set the water gap to
+            meniscus, center a low-drive experimental scan near
             <strong>{result.optimal_water_path_mm:.3f} mm</strong>. The search
-            includes the PP transmission phase and temperature-dependent DMSO
-            sound speed.
+            includes the PP transmission phase and temperature-dependent water
+            and DMSO sound speeds. For a one-cycle ejection pulse, verify this
+            recommendation with a broadband pressure/energy measurement.
         </div>
         """,
         unsafe_allow_html=True,

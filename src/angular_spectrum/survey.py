@@ -31,6 +31,10 @@ class SurveyPulseEcho:
     stored_fluid_height_m: float | None
     fluid_material: str | None
     date_time: str | None
+    probe_frequency_hz: float | None
+    tone_length_cycles: float | None
+    probe_voltage_setting_v: float | None
+    sample_index_start: int | None
 
     @property
     def relative_time_s(self) -> NDArray[np.float64]:
@@ -45,6 +49,12 @@ class SurveyPulseEcho:
     @property
     def fluid_round_trip_time_s(self) -> float:
         return self.fluid_top_time_s - self.pp_fluid_time_s
+
+    @property
+    def excitation_metadata_is_calibrated(self) -> bool:
+        """Survey settings are metadata, not measured connector waveforms."""
+
+        return False
 
 
 @dataclass(frozen=True)
@@ -68,6 +78,15 @@ def _positive_optional_m(value: object) -> float | None:
     if value is None:
         return None
     result = float(value) * 1e-3
+    if not np.isfinite(result) or result <= 0.0:
+        return None
+    return result
+
+
+def _positive_optional(value: object) -> float | None:
+    if value is None:
+        return None
+    result = float(value)
     if not np.isfinite(result) or result <= 0.0:
         return None
     return result
@@ -134,6 +153,12 @@ def parse_survey_pulse_echo(
     date_time = document.get("DateTime")
     if date_time is not None:
         date_time = str(date_time)
+    sample_index_start_raw = ping.get("SampleIndexStart")
+    sample_index_start = None
+    if sample_index_start_raw is not None:
+        candidate = int(sample_index_start_raw)
+        if candidate >= 0:
+            sample_index_start = candidate
 
     return SurveyPulseEcho(
         time_s=time_s,
@@ -151,6 +176,10 @@ def parse_survey_pulse_echo(
         ),
         fluid_material=fluid_material,
         date_time=date_time,
+        probe_frequency_hz=_positive_optional(ping.get("ProbeFrequency")),
+        tone_length_cycles=_positive_optional(ping.get("ToneLength")),
+        probe_voltage_setting_v=_positive_optional(ping.get("ProbeVoltage")),
+        sample_index_start=sample_index_start,
         **interface_times_s,
     )
 

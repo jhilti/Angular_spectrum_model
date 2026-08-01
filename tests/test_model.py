@@ -5,7 +5,11 @@ import numpy as np
 from angular_spectrum.analysis import fwhm
 from angular_spectrum.grid import CartesianGrid
 from angular_spectrum.materials import ElasticPlate, ElasticSolid, Fluid
-from angular_spectrum.model import AngularSpectrumModel, FocusedCircularAperture
+from angular_spectrum.model import (
+    AngularSpectrumModel,
+    FocusedCircularAperture,
+    validate_focused_grid_support,
+)
 from angular_spectrum.pulse import propagate_pulse_on_axis
 
 
@@ -49,10 +53,82 @@ class AngularSpectrumModelTests(unittest.TestCase):
         self.assertEqual(field.shape, (256, 256))
         self.assertTrue(np.all(np.isfinite(field)))
 
+    def test_axis_scan_matches_full_field_at_zero_distance(self) -> None:
+        centre_y, centre_x = self.model.grid.centre_index
+        field = self.model.field_after_plate(10.0e6, 0.0)
+        scan = self.model.on_axis_scan_after_plate(10.0e6, [0.0])
+        self.assertTrue(np.allclose(scan[0], field[centre_y, centre_x]))
+
+        reference_field = self.model.reference_field(10.0e6, 0.0)
+        reference_scan = self.model.reference_on_axis_scan(10.0e6, [0.0])
+        self.assertTrue(
+            np.allclose(
+                reference_scan[0],
+                reference_field[centre_y, centre_x],
+            )
+        )
+
     def test_fwhm_interpolates_gaussian_crossings(self) -> None:
         x = np.linspace(-5.0, 5.0, 10001)
         y = np.exp(-0.5 * x**2)
         self.assertAlmostEqual(fwhm(x, y), 2.35482, places=4)
+
+    def test_grid_support_distinguishes_one_way_from_round_trip(self) -> None:
+        validate_focused_grid_support(
+            self.model,
+            maximum_frequency_hz=10.0e6,
+            propagation_segments=(
+                (
+                    "one-way water path",
+                    self.model.incident_fluid,
+                    self.model.water_path_m,
+                ),
+            ),
+        )
+        with self.assertRaisesRegex(ValueError, "FFT window"):
+            validate_focused_grid_support(
+                self.model,
+                maximum_frequency_hz=10.0e6,
+                propagation_segments=(
+                    (
+                        "water round trip",
+                        self.model.incident_fluid,
+                        2.0 * self.model.water_path_m,
+                    ),
+                ),
+            )
+
+    def test_combined_mask_matches_unsplit_path_in_one_medium(self) -> None:
+        split = self.model._combined_bandlimit_mask(
+            10.0e6,
+            (
+                (self.model.incident_fluid, 10.0e-3),
+                (self.model.incident_fluid, 15.0e-3),
+            ),
+        )
+        combined = self.model._combined_bandlimit_mask(
+            10.0e6,
+            ((self.model.incident_fluid, 25.0e-3),),
+        )
+        self.assertTrue(np.array_equal(split, combined))
+
+    def test_grid_support_rejects_cumulative_layered_walkoff(self) -> None:
+        segment = (
+            "individually supported water segment",
+            self.model.incident_fluid,
+            20.0e-3,
+        )
+        validate_focused_grid_support(
+            self.model,
+            maximum_frequency_hz=10.0e6,
+            propagation_segments=(segment,),
+        )
+        with self.assertRaisesRegex(ValueError, "combined layered path"):
+            validate_focused_grid_support(
+                self.model,
+                maximum_frequency_hz=10.0e6,
+                propagation_segments=(segment, segment),
+            )
 
 
 class PulseConventionTests(unittest.TestCase):

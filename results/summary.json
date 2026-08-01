@@ -3,8 +3,8 @@
   "phasor_convention": "exp(-i omega t)",
   "materials": {
     "water": {
-      "density_kg_m3": 997.77,
-      "sound_speed_m_s": 1488.4
+      "density_kg_m3": 997.8003203172385,
+      "sound_speed_m_s": 1488.3579112389878
     },
     "polypropylene": {
       "density_kg_m3": 900.0,
@@ -15,21 +15,21 @@
       "shear_attenuation_db_per_m": 0.0
     },
     "DMSO": {
-      "density_kg_m3": 1098.4,
-      "sound_speed_m_s": 1499.0
+      "density_kg_m3": 1098.337,
+      "sound_speed_m_s": 1495.74
     }
   },
   "geometry": {
     "aperture_diameter_m": 0.013000000000000001,
-    "geometric_focal_length_m": 0.025,
+    "geometric_focal_length_m": 0.0254,
     "water_path_to_plate_m": 0.02,
     "plate_thickness_m": 0.0007800000000000001
   },
   "sampling": {
-    "water_wavelength_m": 0.00014884000000000002,
-    "samples_per_wavelength_x": 3.721000000000001,
-    "samples_per_wavelength_y": 3.721000000000001,
-    "aperture_edge_angle_deg": 14.574216198038739,
+    "water_wavelength_m": 0.00014883579112389878,
+    "samples_per_wavelength_x": 3.72089477809747,
+    "samples_per_wavelength_y": 3.72089477809747,
+    "aperture_edge_angle_deg": 14.35425562972827,
     "window_x_m": 0.020479999999999998,
     "window_y_m": 0.020479999999999998
   },
@@ -41,18 +41,18 @@
     "absolute electro-acoustic source calibration"
   ],
   "frequency_hz": 10000000.0,
-  "focus_physical_m": 0.0240925,
-  "focus_after_plate_m": 0.0033125,
-  "reference_focus_physical_m": 0.0247175,
-  "lateral_fwhm_m": 0.00040937732666996587,
-  "axial_fwhm_m": 0.005513220505231446,
-  "peak_pressure_for_1Pa_aperture_pa": 33.83046402818476,
-  "reference_peak_pressure_for_1Pa_aperture_pa": 36.462374018952076,
-  "peak_pressure_ratio_plate_to_reference": 0.9278184687206782,
-  "normal_power_transmission_at_center_frequency": 0.87888036589939,
-  "maximum_lossless_energy_balance_error": 1.509903313490213e-14,
-  "pp_longitudinal_refraction_at_aperture_edge_deg": 27.508551866859346,
-  "pp_shear_refraction_at_aperture_edge_deg": 9.877270982223234,
+  "focus_physical_m": 0.0244675,
+  "focus_after_plate_m": 0.0036875000000000002,
+  "reference_focus_physical_m": 0.0250925,
+  "lateral_fwhm_m": 0.00041528526830185463,
+  "axial_fwhm_m": 0.005693984671929615,
+  "peak_pressure_for_1Pa_aperture_pa": 33.24557340651355,
+  "reference_peak_pressure_for_1Pa_aperture_pa": 35.84264915118362,
+  "peak_pressure_ratio_plate_to_reference": 0.9275423048749646,
+  "normal_power_transmission_at_center_frequency": 0.8783566824564214,
+  "maximum_lossless_energy_balance_error": 4.884981308350689e-15,
+  "pp_longitudinal_refraction_at_aperture_edge_deg": 27.069474818447727,
+  "pp_shear_refraction_at_aperture_edge_deg": 9.730203266187333,
   "pulse_simulated_frequency_bins": 213,
-  "pulse_output_peak_relative": 35.19179152029916
+  "pulse_output_peak_relative": 35.47357124349319
 }

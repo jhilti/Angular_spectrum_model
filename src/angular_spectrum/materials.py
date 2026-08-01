@@ -159,7 +159,14 @@ class ElasticSolid:
         return complex(omega / self.shear_speed_m_s, alpha)
 
     def complex_lame_parameters(self, frequency_hz: float) -> tuple[complex, complex]:
-        """Return frequency-consistent complex ``(lambda, mu)`` parameters."""
+        """Return passive, frequency-consistent complex ``(lambda, mu)``.
+
+        Independently entered longitudinal and shear attenuation can imply an
+        *active* bulk response even when both attenuation numbers are positive.
+        For the package's ``exp(-i omega t)`` convention, passive shear and
+        bulk moduli have non-positive imaginary parts.  Rejecting the opposite
+        sign prevents an unphysical plate from creating acoustic energy.
+        """
 
         omega = 2.0 * np.pi * frequency_hz
         k_l = self.longitudinal_wavenumber(frequency_hz)
@@ -168,6 +175,19 @@ class ElasticSolid:
         c_s_complex = omega / k_s
         mu = self.density_kg_m3 * c_s_complex**2
         lam = self.density_kg_m3 * c_l_complex**2 - 2.0 * mu
+        bulk_modulus = lam + 2.0 * mu / 3.0
+        tolerance = 1.0e-12 * max(
+            abs(mu),
+            abs(bulk_modulus),
+            1.0,
+        )
+        if np.imag(mu) > tolerance or np.imag(bulk_modulus) > tolerance:
+            raise ValueError(
+                "longitudinal/shear attenuation combination is non-passive: "
+                "it implies gain in the complex shear or bulk modulus; "
+                "increase longitudinal loss, reduce shear loss, or use "
+                "measured complex elastic moduli"
+            )
         return lam, mu
 
 

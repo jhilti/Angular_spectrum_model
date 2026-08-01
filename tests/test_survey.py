@@ -33,6 +33,10 @@ class SurveyImportTests(unittest.TestCase):
             "SurveyPingsSuper": [
                 {
                     "SampleFrequency": sample_rate_hz,
+                    "SampleIndexStart": 7,
+                    "ProbeFrequency": 10.0e6,
+                    "ToneLength": 1,
+                    "ProbeVoltage": 100.0,
                     "SignalData": signal.tolist(),
                 }
             ],
@@ -47,6 +51,11 @@ class SurveyImportTests(unittest.TestCase):
             loaded = load_survey_pulse_echo(path)
         self.assertTrue(np.array_equal(parsed.signal_adc, loaded.signal_adc))
         self.assertEqual(parsed.sample_rate_hz, loaded.sample_rate_hz)
+        self.assertEqual(parsed.sample_index_start, 7)
+        self.assertEqual(parsed.probe_frequency_hz, 10.0e6)
+        self.assertEqual(parsed.tone_length_cycles, 1.0)
+        self.assertEqual(parsed.probe_voltage_setting_v, 100.0)
+        self.assertFalse(parsed.excitation_metadata_is_calibrated)
 
     def test_geometry_exposes_stored_sound_speed_assumptions(self) -> None:
         document = self._document()

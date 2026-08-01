@@ -6,7 +6,7 @@ A local Python implementation of the setup described in the shared chat:
 |---|---:|
 | Center frequency | 10 MHz |
 | Transducer aperture | 13 mm |
-| Geometric focus | 25 mm |
+| Geometric focus | 25.40 mm |
 | Temperature | 22 °C |
 | Layers | Water → PP → DMSO |
 | PP thickness | 0.78 mm |
@@ -23,6 +23,11 @@ for every transverse wavenumber. Forward- and backward-propagating
 longitudinal and SV waves are included in the isotropic PP layer. The model
 therefore captures mode conversion, angle-dependent transmission, and all
 multiple reflections inside the plate.
+
+The repository has undergone a systematic code/formula and numerical audit.
+The corrected scope, remaining limitations, and a measurement-first roadmap
+for a real acoustic droplet-ejection device are in
+[**PHYSICS_AUDIT.md**](PHYSICS_AUDIT.md).
 
 The implementation follows the established angular spectrum approach for
 layered media ([Vecchio et al., 1994](https://pubmed.ncbi.nlm.nih.gov/7810021/))
@@ -45,6 +50,11 @@ Click any figure to open the full-resolution PNG. Pressure, receive-signal,
 and intensity values are relative quantities unless the complete
 transducer/ADC chain has been calibrated.
 
+The optional electrical example also includes a deliberately provisional
+[150 V open-circuit source and tone-length sweep](results/electroacoustic_voltage_tone_sweep.png).
+With its placeholder 50 Ω source and 50 Ω probe, this means 75 V peak at the
+probe connector; it is not an absolute acoustic-amplitude prediction.
+
 ## Quick start
 
 ```bash
@@ -64,7 +74,7 @@ three analyses in one interface:
 - Broadband pulse-echo response with water–PP, PP–DMSO, and DMSO–air echoes
 - Qualitative overlay of an optional uploaded survey JSON file
 - Current focal position and a search for the water gap that maximizes
-  one-way intensity at the meniscus
+  the monochromatic on-axis pressure-squared focus metric at the meniscus
 
 Run the interface locally with:
 
@@ -86,9 +96,11 @@ entrypoint. Subsequent changes to that branch are automatically reflected in
 the web app.
 
 The focus optimization varies the water gap and maximizes the monochromatic
-one-way intensity at the planar meniscus. It includes the complex PP
+single-pass on-axis pressure-squared proxy at the planar meniscus. It includes the complex PP
 transmission and the DMSO sound speed, while deliberately keeping cavity
-interference separate from the focus metric.
+interference separate from the focus metric. Water and DMSO properties both
+follow the selected temperature. Invalid grid/path combinations are rejected
+instead of silently clipping the required aperture spectrum.
 
 The default calculation creates the following files in `results/`:
 
@@ -120,6 +132,10 @@ The mixture properties are not calculated by linear interpolation between
 water and DMSO. They are interpolated from measured density and sound-speed
 data at 20 and 40 °C
 ([Palaiologou et al., 2006](https://doi.org/10.1007/s10953-006-9082-5)).
+Pure-water sound speed uses the continuous Marczak correlation
+([Marczak, 1997](https://doi.org/10.1121/1.420332)); water density uses the
+atmospheric-pressure Kell correlation
+([Kell, 1975](https://doi.org/10.1021/je60064a005)).
 
 A monostatic pulse-echo example uses the same focused transducer first as the
 transmitter and then as the microphone. It simulates a positive-going
@@ -136,10 +152,11 @@ Doppler-I2-10P13F25-H probe: a 25.40 mm focus, 9.97 MHz center frequency,
 This two-way response is applied once; it is not incorrectly squared as
 separate one-way transmit and receive responses.
 
-The plot marks the water–PP, PP–DMSO, and DMSO–air interfaces separately. The
-frequency-dependent PP plate response continues to include its internal
-multiple reflections. All received signals remain normalized unless the
-electrical and acoustic paths have been calibrated.
+The plot marks the water–PP, PP–DMSO, and first retained DMSO–air return
+separately. The frequency-dependent PP plate response continues to include its
+internal multiple reflections. Later liquid-cavity returns require a wider
+grid/record and a convergence check. All received signals remain normalized
+unless the electrical and acoustic paths have been calibrated.
 
 ## Optional voltage and tone-length model
 
@@ -152,6 +169,7 @@ defaults. It provides:
 - A four-element Butterworth–Van Dyke impedance model
 - Separate complex transmit sensitivity in Pa/V and receive sensitivity in V/Pa
 - Receiver gain/filter response and optional ADC counts/V conversion
+- Optional explicit receiver input impedance and receive-side loading
 - Terminal voltage, current, delivered energy, aperture pressure, received
   voltage, and ADC waveform
 
@@ -167,7 +185,7 @@ The calibrated pulse-echo chain is then
 V_R(f)=V_T(f)H_{TX}(f)H_{acoustic}(f)H_{RX}(f)H_{receiver}(f).
 \]
 
-Burst length is therefore evaluated from the actual waveform and system
+Burst length is therefore evaluated from the supplied waveform and modeled
 response; it is not approximated by multiplying a one-cycle peak.
 
 Run the voltage and tone-length sweep with:
@@ -179,9 +197,17 @@ python examples/electroacoustic_voltage_tone_sweep.py
 The example uses the measured pulse-echo bandwidth as a zero-phase spectral
 shape, split equally between transmit and receive. Its default 50 Ω probe
 impedance and unit Pa/V and V/Pa sensitivities are placeholders, so every plot
-is labelled **provisional**. Supplying `--absolute-calibration` only changes
-that label; it should be used only after replacing all placeholder values with
-consistent measurements.
+is labelled **provisional**. Supplying `--absolute-calibration` is only a user
+assertion that changes that label; real absolute use also needs recorded
+calibration provenance, reference plane, date, and uncertainty.
+
+The source voltage argument is explicitly an **open-circuit Thevenin peak
+voltage**. It is not automatically the loaded probe voltage or the pulser's
+front-panel setting. The reported energy is net electrical energy absorbed by
+the modeled load over the record, not acoustic energy delivered to the liquid.
+The sweep reports the first gated DMSO–air echo separately from the global
+composite receiver peak. Both are receiver metrics; neither is a direct
+meniscus-force or ejection-efficiency metric.
 
 The lower-level API is available independently of the web application:
 
@@ -297,17 +323,40 @@ spectrum, and relative envelope peaks are therefore qualitative diagnostic
 metrics, not an absolute pressure calibration. Plots derived from raw data are
 stored under `results/private/` and ignored by Git.
 
-For ideal focusing that tracks the meniscus, the forward intensity directly
-below the DMSO–air interface can be evaluated over a fill-height range from 2
-to 3 mm:
+For an ideal phase-conjugate aperture optimized independently at every height,
+the CW forward intensity directly below the DMSO–air interface can be evaluated
+over a fill-height range from 2 to 3 mm:
 
 ```bash
 python examples/meniscus_intensity_sweep.py
 ```
 
-The example compares the coherent calculation including all reflections with
-a one-way reference that excludes DMSO cavity reflections. This keeps the
-interference effect distinguishable from the focal shift.
+The example compares an adaptively converged, order-specific coherent cavity
+sum with a one-way reference that excludes DMSO cavity reflections. It also
+stores total fluid-side pressure, velocity, and displacement. The displacement
+is the first-order 10 MHz oscillatory displacement—not slow mound height or jet
+deformation. The phase is independently optimized for on-axis pressure at
+each height; this is not a strict intensity optimum or a fixed-focus
+single-element scan. Its steady-state interference
+fringes do not describe the first surface response of a one-cycle pulse; at the
+default 4.22 mm height, the first cavity return arrives about 51.7 cycles later.
+
+## Acoustic droplet-ejection screening
+
+Print diffraction and cavity-delay scales for the current geometry with:
+
+```bash
+python examples/ade_design_screen.py
+```
+
+For the default 80 vol.% DMSO case it reports a 0.325 mm homogeneous-medium
+one-way intensity-FWHM proxy and a 5.172 µs liquid-cavity round trip. The
+layered model gives about 0.303 mm at the nominal optimum. The corresponding
+18 nL
+spot-equivalent sphere is a geometric scale, **not a predicted droplet volume**.
+Ejection threshold, volume, velocity, satellites, cavitation, and heating need
+absolute calibration and free-surface measurements. Follow the staged workflow
+in [PHYSICS_AUDIT.md](PHYSICS_AUDIT.md) before extrapolating from voltage.
 
 ## Important parameters that still require measurement
 
@@ -318,9 +367,11 @@ calibration:
 - PP density: 900 kg/m³
 - PP Poisson ratio: 0.42, corresponding to \(c_S \approx 1015\) m/s
 - PP attenuation for P and SV waves: 0 dB/m by default
-- DMSO at 22 °C: 1499 m/s and 1098.4 kg/m³ as a literature approximation
-- Water at 22 °C: 1488.4 m/s and 997.77 kg/m³
-- Water path to the front of the PP plate: 20 mm
+- Pure DMSO at 22 °C: 1495.74 m/s and 1098.337 kg/m³ from interpolation of
+  the same 20–40 °C literature table used for mixtures
+- Pure water at 22 °C: 1488.358 m/s from Marczak and 997.800 kg/m³ from Kell
+- Water path to the PP front: 20 mm in the monochromatic CLI/sweep examples;
+  25.3 mm in the pulse-echo and Streamlit defaults
 
 For reliable absolute pressures, at least the PP density, PP shear-wave speed,
 longitudinal and transverse attenuation, and the sound speed and density of
@@ -354,10 +405,26 @@ from angular_spectrum import (
     ElasticSolid,
     Fluid,
     FocusedCircularAperture,
+    dmso_water_properties,
+    water_properties,
 )
 
-water = Fluid("water_22C", 997.77, 1488.4)
-dmso = Fluid("DMSO_22C", 1098.4, 1499.0)
+water_data = water_properties(22.0)
+water = Fluid(
+    "water_22C",
+    water_data.density_kg_m3,
+    water_data.sound_speed_m_s,
+)
+dmso_data = dmso_water_properties(
+    1.0,
+    basis="volume",
+    temperature_c=22.0,
+)
+dmso = Fluid(
+    "DMSO_22C",
+    dmso_data.density_kg_m3,
+    dmso_data.sound_speed_m_s,
+)
 pp = ElasticSolid.from_longitudinal_speed_and_poisson(
     name="PP",
     density_kg_m3=900.0,
@@ -367,7 +434,7 @@ pp = ElasticSolid.from_longitudinal_speed_and_poisson(
 
 model = AngularSpectrumModel(
     grid=CartesianGrid(nx=512, ny=512, dx_m=40e-6),
-    aperture=FocusedCircularAperture(13e-3, 25e-3),
+    aperture=FocusedCircularAperture(13e-3, 25.4e-3),
     incident_fluid=water,
     plate=ElasticPlate(pp, 0.78e-3),
     transmitted_fluid=dmso,
@@ -396,6 +463,10 @@ Included:
 - Frequency- and angle-dependent complex transmission
 - Lossy media represented by complex wavenumbers
 - Optional band-limited ASM evaluation to reduce numerical wrap-around
+- Cumulative layered-path band limits based on total transverse walkoff
+- Order-specific liquid-cavity propagation masks (`2h`, `4h`, `6h`, ...)
+- A finite number of nominal liquid-surface echo orders, with future orders
+  omitted instead of deliberately wrapping them into the FFT-record start
 - Optional time-domain reconstruction of a broadband pulse
 - Optional Thevenin/BVD terminal model and calibrated Pa/V-to-V/Pa pulse-echo
   wrapper
@@ -406,8 +477,24 @@ Not included:
 - Finite lateral dimensions or tilt of the PP plate
 - Surface roughness, adhesive layers, air bubbles, or additional layers
 - Nonlinearity at high acoustic pressures
+- Meniscus deformation, acoustic streaming, capillary jets, pinch-off,
+  satellites, cavitation, and thermal accumulation
 - A probe-specific KLM or Mason stack derived from piezoelectric, matching-layer,
   backing, lens, and housing material constants
+- Causal broadband dispersion associated with attenuation; the current
+  power-law attenuation is a narrowband phenomenological model
+- A measured causal phase/ring-down model for the probe and electronics. The
+  certificate-only zero-phase magnitude and hard active-bin threshold can
+  create small symmetric pre-ringing; do not interpret it as a physical echo.
+
+Pulse calculations should be repeated with a longer time record, a lower
+spectral threshold, and measured PP/fluid loss. The retained liquid-surface
+echo count uses central-ray delays plus an explicit response guard; oblique
+rays and plate modal group delay can be later. The elastic plate itself is a
+steady-state frequency-domain scattering solution, so a lossless plate can
+retain long internal reverberation. Time-domain causality therefore requires
+record-length convergence and, ultimately, measured complex system phase and
+loss—not just a larger nominal echo count.
 
 The source is a planar equivalent circular aperture with an exact spherical
 focusing phase. The default aperture pressure of 1 Pa therefore produces a
@@ -426,5 +513,8 @@ The tests cover, in particular:
 - The outgoing/decaying \(k_z\) root
 - Agreement with the analytical layer formula at normal incidence
 - Energy conservation \(R+T=1\) for a lossless plate
+- Asymmetric-fluid reciprocity, grazing limits, and passive material inputs
 - Focus and finite fields on a reduced grid
 - The time convention used for pulse reconstruction
+- Temperature-consistent water timing, two-way propagation masks, explicit
+  receive loading, meniscus pressure scaling, and ADE screening scales

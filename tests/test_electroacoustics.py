@@ -64,6 +64,21 @@ class ElectricalDriveTests(unittest.TestCase):
         self.assertTrue(np.all(np.isfinite(impedance[1:])))
         self.assertTrue(np.all(impedance[1:].real > 0.0))
 
+    def test_active_load_impedance_is_rejected(self) -> None:
+        time, source_voltage = sine_burst(
+            center_frequency_hz=1.0e6,
+            cycles=1.0,
+            sample_rate_hz=20.0e6,
+            record_length_s=3.0e-6,
+        )
+        with self.assertRaisesRegex(ValueError, "passive"):
+            solve_thevenin_drive(
+                time,
+                source_voltage,
+                source_impedance_ohm=50.0,
+                transducer_impedance_ohm=-10.0,
+            )
+
 
 class ElectroAcousticPulseEchoTests(unittest.TestCase):
     @staticmethod
@@ -191,6 +206,78 @@ class ElectroAcousticPulseEchoTests(unittest.TestCase):
             high.electrical.delivered_energy_j,
             9.0 * low.electrical.delivered_energy_j,
         )
+
+    def test_frequency_shaped_transmit_uses_unfiltered_source_support(self) -> None:
+        model, air = self._model()
+        time, source_voltage = sine_burst(
+            center_frequency_hz=1.0e6,
+            cycles=1.0,
+            sample_rate_hz=20.0e6,
+            record_length_s=12.0e-6,
+        )
+        calibration = ElectroAcousticCalibration(
+            transmit_pressure_pa_per_v=lambda frequency: np.exp(
+                -0.5 * ((frequency - 1.0e6) / 0.35e6) ** 2
+            ),
+            receive_voltage_v_per_pa=1.0,
+        )
+        result = simulate_electroacoustic_pulse_echo(
+            model,
+            time,
+            source_voltage,
+            source_impedance_ohm=50.0,
+            transducer_impedance_ohm=50.0,
+            calibration=calibration,
+            fluid_layer_thickness_m=1.0e-3,
+            backing_fluid=air,
+            relative_spectrum_threshold=1.0e-3,
+            minimum_frequency_hz=0.2e6,
+            maximum_frequency_hz=1.8e6,
+        )
+        self.assertGreater(result.acoustic.fluid_cavity_echo_count, 0)
+        self.assertGreater(abs(result.aperture_pressure_pa[-1]), 0.0)
+
+    def test_receive_input_impedance_applies_explicit_loading(self) -> None:
+        model, air = self._model()
+        time, source_voltage = sine_burst(
+            center_frequency_hz=1.0e6,
+            cycles=1.0,
+            sample_rate_hz=20.0e6,
+            record_length_s=12.0e-6,
+        )
+        common = {
+            "source_impedance_ohm": 50.0,
+            "transducer_impedance_ohm": 50.0,
+            "calibration": ElectroAcousticCalibration(
+                transmit_pressure_pa_per_v=1.0,
+                receive_voltage_v_per_pa=1.0,
+            ),
+            "fluid_layer_thickness_m": 1.0e-3,
+            "backing_fluid": air,
+            "relative_spectrum_threshold": 0.0,
+            "minimum_frequency_hz": 0.5e6,
+            "maximum_frequency_hz": 1.5e6,
+        }
+        open_circuit = simulate_electroacoustic_pulse_echo(
+            model,
+            time,
+            source_voltage,
+            **common,
+        )
+        loaded = simulate_electroacoustic_pulse_echo(
+            model,
+            time,
+            source_voltage,
+            receiver_input_impedance_ohm=50.0,
+            **common,
+        )
+        self.assertTrue(
+            np.allclose(
+                loaded.received_voltage_v,
+                0.5 * open_circuit.received_voltage_v,
+            )
+        )
+        self.assertTrue(np.allclose(loaded.receiver_loading_response, 0.5))
 
 
 if __name__ == "__main__":

@@ -81,6 +81,7 @@ def _resolve_impedance(
     *,
     name: str,
     allow_open_circuit: bool,
+    require_passive: bool = True,
 ) -> NDArray[np.complex128]:
     if callable(impedance_ohm):
         values = np.asarray(impedance_ohm(frequency_hz), dtype=np.complex128)
@@ -94,6 +95,13 @@ def _resolve_impedance(
         raise ValueError(f"{name} must not contain NaN")
     if not allow_open_circuit and np.any(~np.isfinite(values)):
         raise ValueError(f"{name} must be finite")
+    finite = np.isfinite(values.real) & np.isfinite(values.imag)
+    if require_passive and np.any(finite):
+        scale = max(float(np.max(np.abs(values[finite]))), 1.0)
+        if np.any(values.real[finite] < -1.0e-12 * scale):
+            raise ValueError(
+                f"{name} must be passive (real impedance >= 0)"
+            )
     return values
 
 
@@ -174,7 +182,12 @@ class ButterworthVanDyke:
 
 @dataclass(frozen=True)
 class ElectricalDriveResult:
-    """Voltage, current, impedance, and energy at the probe connector."""
+    """Voltage, current, impedance, and energy at the probe connector.
+
+    ``delivered_energy_j`` is the net electrical energy absorbed by the
+    modeled transducer impedance over this finite record.  It is not pulser
+    energy, motional acoustic energy, or energy deposited in the liquid.
+    """
 
     time_s: NDArray[np.float64]
     frequency_hz: NDArray[np.float64]
@@ -195,6 +208,12 @@ class ElectricalDriveResult:
     @property
     def peak_terminal_current_a(self) -> float:
         return float(np.max(np.abs(self.terminal_current_a)))
+
+    @property
+    def net_absorbed_load_energy_j(self) -> float:
+        """Alias that states the physical meaning of ``delivered_energy_j``."""
+
+        return self.delivered_energy_j
 
 
 def solve_thevenin_drive(
@@ -269,9 +288,14 @@ class ElectroAcousticCalibration:
 
     ``transmit_pressure_pa_per_v`` maps terminal voltage to equivalent aperture
     pressure.  ``receive_voltage_v_per_pa`` maps the reciprocal aperture-
-    projected return pressure to open receiver voltage.  ``receiver_response``
-    includes loaded gain and filtering after the probe connector.  Set
-    ``absolute=True`` only when the sensitivities have an absolute calibration.
+    projected return pressure to open-circuit receiver voltage.
+    ``receiver_response`` includes gain and filtering after the probe
+    connector.  If no receiver input impedance is supplied to the simulator,
+    this response must also include the actual receive loading. Set
+    ``absolute=True`` only when all sensitivities, reference planes, loading,
+    and gains have an absolute calibration. A single pulse-echo reference
+    identifies only the product of transmit and receive responses, not each
+    response separately.
     """
 
     transmit_pressure_pa_per_v: FrequencyResponse
@@ -301,6 +325,8 @@ class ElectroAcousticPulseEchoResult:
     plate_front_voltage_v: NDArray[np.float64]
     backing_voltage_v: NDArray[np.float64]
     receive_chain_response_v_per_pa: NDArray[np.complex128]
+    receiver_loading_response: NDArray[np.complex128]
+    receiver_input_impedance_ohm: NDArray[np.complex128] | None
     received_adc_counts: NDArray[np.float64] | None
     absolute_calibration: bool
 
@@ -321,19 +347,29 @@ def simulate_electroacoustic_pulse_echo(
     source_impedance_ohm: FrequencyResponse = 50.0,
     transducer_impedance_ohm: FrequencyResponse,
     calibration: ElectroAcousticCalibration,
+    receiver_input_impedance_ohm: FrequencyResponse | None = None,
     fluid_layer_thickness_m: float,
     backing_fluid: Fluid,
     relative_spectrum_threshold: float = 1.0e-3,
     minimum_frequency_hz: float = 0.5e6,
     maximum_frequency_hz: float | None = None,
+    drive_time_support_s: tuple[float, float] | None = None,
+    response_guard_s: float | None = None,
+    fluid_cavity_echo_count: int | None = None,
 ) -> ElectroAcousticPulseEchoResult:
     """Simulate a calibrated voltage-driven monostatic pulse echo.
 
     Absolute Pa, V, and ADC values are meaningful only if the impedance,
     transmit sensitivity, receive sensitivity, receiver loading/gain, and ADC
-    scale have all been measured consistently.  With ``absolute=False`` the
+    scale have all been measured consistently. If
+    ``receiver_input_impedance_ohm`` is provided, the receive sensitivity is
+    treated as open circuit and the transducer/receiver voltage divider is
+    applied explicitly. Otherwise receive loading must already be included in
+    the calibration response. With ``absolute=False`` the
     same calculation remains useful for relative voltage and tone-length
     sweeps, but the numerical amplitude scale must be treated as provisional.
+    By default, causal burst support is inferred from the unfiltered source
+    voltage. Pass ``drive_time_support_s`` to override that interval.
     """
 
     electrical = solve_thevenin_drive(
@@ -369,6 +405,24 @@ def simulate_electroacoustic_pulse_echo(
     normalized_aperture_drive = (
         aperture_pressure / model.aperture.pressure_amplitude_pa
     )
+    if drive_time_support_s is None:
+        source_values = np.asarray(source_voltage_v, dtype=float)
+        source_magnitude = np.abs(source_values)
+        source_peak = float(np.max(source_magnitude))
+        delta_t = float(electrical.time_s[1] - electrical.time_s[0])
+        if source_peak > 0.0:
+            source_indices = np.flatnonzero(
+                source_magnitude > source_peak * 1.0e-12
+            )
+            drive_time_support_s = (
+                float(electrical.time_s[source_indices[0]]),
+                float(electrical.time_s[source_indices[-1]] + delta_t),
+            )
+        else:
+            drive_time_support_s = (
+                float(electrical.time_s[0]),
+                float(electrical.time_s[0] + delta_t),
+            )
     acoustic = simulate_monostatic_pulse_echo(
         model,
         electrical.time_s,
@@ -378,9 +432,39 @@ def simulate_electroacoustic_pulse_echo(
         relative_spectrum_threshold=relative_spectrum_threshold,
         minimum_frequency_hz=minimum_frequency_hz,
         maximum_frequency_hz=maximum_frequency_hz,
+        drive_time_support_s=drive_time_support_s,
+        response_guard_s=response_guard_s,
+        fluid_cavity_echo_count=fluid_cavity_echo_count,
     )
 
-    receive_chain = receive_response * receiver_response
+    receiver_input_impedance = None
+    receiver_loading = np.ones_like(frequency, dtype=np.complex128)
+    if receiver_input_impedance_ohm is not None:
+        receiver_input_impedance = _resolve_impedance(
+            frequency,
+            receiver_input_impedance_ohm,
+            name="receiver_input_impedance_ohm",
+            allow_open_circuit=True,
+        )
+        transducer_impedance = electrical.transducer_impedance_ohm
+        receiver_open = np.isinf(np.abs(receiver_input_impedance))
+        transducer_open = np.isinf(np.abs(transducer_impedance))
+        finite_divider = ~(receiver_open | transducer_open)
+        denominator = (
+            receiver_input_impedance[finite_divider]
+            + transducer_impedance[finite_divider]
+        )
+        if np.any(np.abs(denominator) <= np.finfo(float).tiny):
+            raise ValueError(
+                "receiver and transducer impedances produce a zero denominator"
+            )
+        receiver_loading[receiver_open] = 1.0
+        receiver_loading[transducer_open & ~receiver_open] = 0.0
+        receiver_loading[finite_divider] = (
+            receiver_input_impedance[finite_divider] / denominator
+        )
+
+    receive_chain = receive_response * receiver_loading * receiver_response
     front_pressure_spectrum = np.fft.rfft(acoustic.plate_front_signal)
     backing_pressure_spectrum = np.fft.rfft(acoustic.backing_signal)
     front_voltage_spectrum = front_pressure_spectrum * receive_chain
@@ -409,6 +493,8 @@ def simulate_electroacoustic_pulse_echo(
         plate_front_voltage_v=plate_front_voltage,
         backing_voltage_v=backing_voltage,
         receive_chain_response_v_per_pa=receive_chain,
+        receiver_loading_response=receiver_loading,
+        receiver_input_impedance_ohm=receiver_input_impedance,
         received_adc_counts=received_adc,
         absolute_calibration=calibration.absolute,
     )

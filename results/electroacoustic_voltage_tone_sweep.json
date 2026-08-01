@@ -1,0 +1,104 @@
+{
+  "scope": {
+    "absolute_calibration": false,
+    "absolute_calibration_is_user_asserted": false,
+    "voltage_reference": "open-circuit Thevenin peak voltage",
+    "amplitude_scale": "provisional",
+    "warning": "50 ohm probe and unit Pa/V and V/Pa are placeholders",
+    "tone_metric_warning": "receiver echo peaks do not predict meniscus forcing or droplet-ejection efficiency"
+  },
+  "drive": {
+    "frequency_hz": 10000000.0,
+    "open_circuit_source_peak_v": 150.0,
+    "source_impedance_ohm": 50.0,
+    "probe_impedance_ohm": 50.0,
+    "cycles": [
+      1.0,
+      2.0,
+      4.0,
+      8.0,
+      16.0
+    ],
+    "voltage_sweep_v": [
+      25.0,
+      50.0,
+      75.0,
+      100.0,
+      125.0,
+      150.0
+    ]
+  },
+  "geometry": {
+    "water_path_m": 0.0253,
+    "pp_thickness_m": 0.0007800000000000001,
+    "fluid_height_m": 0.00422
+  },
+  "materials": {
+    "temperature_c": 22.0,
+    "dmso_volume_percent": 80.0,
+    "water_density_kg_m3": 997.8003203172385,
+    "water_sound_speed_m_s": 1488.3579112389878,
+    "fluid_density_kg_m3": 1100.987821936803,
+    "fluid_sound_speed_m_s": 1631.9958165935382
+  },
+  "numerics": {
+    "grid_size": 320,
+    "grid_spacing_m": 9.999999999999999e-05,
+    "grid_window_m": 0.032,
+    "grid_validation_frequency_hz": 25000000.0,
+    "sample_rate_hz": 80000000.0,
+    "record_length_s": 5.118979107143312e-05
+  },
+  "tone_sweep": [
+    {
+      "cycles": 1.0,
+      "terminal_peak_v": 75.0,
+      "aperture_peak": 64.05122704081465,
+      "first_surface_gated_peak": 9.511447969907616,
+      "global_composite_received_peak": 12.892565343873395,
+      "plate_front_peak": 12.88687830325727,
+      "net_absorbed_load_energy_j": 5.624999999999999e-06,
+      "fluid_cavity_echo_count": 1
+    },
+    {
+      "cycles": 2.0,
+      "terminal_peak_v": 75.0,
+      "aperture_peak": 74.97238260725413,
+      "first_surface_gated_peak": 10.42640257989002,
+      "global_composite_received_peak": 16.36135766416117,
+      "plate_front_peak": 16.356286075958362,
+      "net_absorbed_load_energy_j": 1.1250000000000004e-05,
+      "fluid_cavity_echo_count": 1
+    },
+    {
+      "cycles": 4.0,
+      "terminal_peak_v": 75.0,
+      "aperture_peak": 75.20699482766159,
+      "first_surface_gated_peak": 11.274710725961235,
+      "global_composite_received_peak": 16.319005741261147,
+      "plate_front_peak": 16.321939579130927,
+      "net_absorbed_load_energy_j": 2.25e-05,
+      "fluid_cavity_echo_count": 1
+    },
+    {
+      "cycles": 8.0,
+      "terminal_peak_v": 75.0,
+      "aperture_peak": 75.620718316079,
+      "first_surface_gated_peak": 11.427230993514529,
+      "global_composite_received_peak": 21.915474393718675,
+      "plate_front_peak": 21.945141369813534,
+      "net_absorbed_load_energy_j": 4.499999999999997e-05,
+      "fluid_cavity_echo_count": 1
+    },
+    {
+      "cycles": 16.0,
+      "terminal_peak_v": 75.00000000000001,
+      "aperture_peak": 75.5978635350209,
+      "first_surface_gated_peak": 11.436250724146207,
+      "global_composite_received_peak": 22.916337804857545,
+      "plate_front_peak": 22.946639038299125,
+      "net_absorbed_load_energy_j": 8.999999999999999e-05,
+      "fluid_cavity_echo_count": 1
+    }
+  ]
+}

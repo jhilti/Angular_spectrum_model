@@ -21,6 +21,7 @@ from angular_spectrum import (
     FocusedCircularAperture,
     dmso_water_properties,
     optimal_meniscus_intensity_sweep,
+    water_properties,
 )
 
 
@@ -55,7 +56,12 @@ def main() -> None:
         basis="volume",
         temperature_c=TEMPERATURE_C,
     )
-    water = Fluid("water_22C", 997.77, 1488.4)
+    water_data = water_properties(TEMPERATURE_C)
+    water = Fluid(
+        f"water_{TEMPERATURE_C:g}C",
+        water_data.density_kg_m3,
+        water_data.sound_speed_m_s,
+    )
     dmso = Fluid(
         "80volpct_DMSO_22C",
         dmso_properties.density_kg_m3,
@@ -72,7 +78,7 @@ def main() -> None:
         grid=CartesianGrid(nx=384, ny=384, dx_m=50e-6),
         aperture=FocusedCircularAperture(
             diameter_m=13.0e-3,
-            focal_length_m=25.0e-3,
+            focal_length_m=25.4e-3,
         ),
         incident_fluid=water,
         plate=ElasticPlate(polypropylene, PP_THICKNESS_M),
@@ -97,7 +103,17 @@ def main() -> None:
     reference = float(np.mean(baseline))
     baseline_relative = baseline / reference
     reverberant_relative = reverberant / reference
-    gain_db = 10.0 * np.log10(result.interference_gain)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        gain_db = np.where(
+            result.interference_gain > 0.0,
+            10.0 * np.log10(result.interference_gain),
+            np.nan,
+        )
+    if np.any(~np.isfinite(gain_db)):
+        raise RuntimeError(
+            "the on-axis signed intensity changed direction or vanished; "
+            "a dB interference gain is undefined for this sweep"
+        )
 
     maxima = local_maxima(reverberant_relative)
     minima = local_minima(reverberant_relative)
@@ -134,13 +150,13 @@ def main() -> None:
     axes[0].plot(
         heights_m * 1e3,
         reverberant_relative,
-        label="mit DMSO–Luft-Reflexion",
+        label="with DMSO–air reflection",
         color="#355f8a",
     )
     axes[0].plot(
         heights_m * 1e3,
         baseline_relative,
-        label="ohne Mehrfachreflexion",
+        label="without cavity reverberation",
         color="#d1495b",
         linestyle="--",
     )
@@ -169,8 +185,8 @@ def main() -> None:
         textcoords="offset points",
     )
     axes[0].set(
-        ylabel="Intensität / mittlere Einweg-Intensität",
-        title="Ideal auf den Meniskus fokussierte Vorwärtsintensität",
+        ylabel="Forward intensity / mean single-pass intensity",
+        title="CW pressure-phase-optimized meniscus sweep",
     )
     axes[0].legend()
 
@@ -181,8 +197,8 @@ def main() -> None:
     )
     axes[1].axhline(0.0, color="0.45", linewidth=1.0, linestyle="--")
     axes[1].set(
-        xlabel="DMSO-Füllhöhe [mm]",
-        ylabel="Interferenzverstärkung [dB]",
+        xlabel="DMSO fill height [mm]",
+        ylabel="CW interference gain [dB]",
     )
     for axis in axes:
         axis.grid(alpha=0.23)
@@ -198,6 +214,15 @@ def main() -> None:
         single_pass_intensity_w_m2=baseline,
         interference_gain=result.interference_gain,
         interference_gain_db=gain_db,
+        total_interface_pressure_pa=result.total_interface_pressure_pa,
+        total_interface_normal_velocity_m_s=(
+            result.total_interface_normal_velocity_m_s
+        ),
+        total_interface_normal_displacement_m=(
+            result.total_interface_normal_displacement_m
+        ),
+        cavity_orders_retained=result.cavity_orders_retained,
+        cavity_series_converged=result.cavity_series_converged,
     )
     with (OUTPUT_DIRECTORY / "meniscus_intensity_sweep.csv").open(
         "w", newline="", encoding="utf-8"
@@ -210,6 +235,8 @@ def main() -> None:
                 "single_pass_intensity_w_m2_for_1Pa_aperture",
                 "interference_gain",
                 "interference_gain_db",
+                "cavity_orders_retained",
+                "cavity_series_converged",
             ]
         )
         writer.writerows(
@@ -219,6 +246,8 @@ def main() -> None:
                 baseline,
                 result.interference_gain,
                 gain_db,
+                result.cavity_orders_retained,
+                result.cavity_series_converged,
             )
         )
 
@@ -228,6 +257,8 @@ def main() -> None:
             "water_path_to_pp_front_m": WATER_PATH_M,
             "pp_thickness_m": PP_THICKNESS_M,
             "dmso_height_range_m": [MIN_HEIGHT_M, MAX_HEIGHT_M],
+            "transducer_diameter_m": model.aperture.diameter_m,
+            "transducer_focal_length_m": model.aperture.focal_length_m,
             "backing": "air",
             "meniscus": "planar",
         },
@@ -256,9 +287,33 @@ def main() -> None:
             "relative curves use the mean optimally focused single-pass "
             "intensity; W/m2 values assume 1 Pa aperture pressure"
         ),
+        "scope": {
+            "pressure_phase_optimized_independently_per_height": (
+                result.pressure_phase_optimized_independently_per_height
+            ),
+            "phase_only_pressure_upper_bound": (
+                result.is_phase_only_pressure_upper_bound
+            ),
+            "strict_intensity_upper_bound": False,
+            "cavity_relative_tolerance": result.cavity_relative_tolerance,
+            "maximum_cavity_orders_retained": int(
+                np.max(result.cavity_orders_retained)
+            ),
+            "all_cavity_series_converged": bool(
+                np.all(result.cavity_series_converged)
+            ),
+            "steady_state_monochromatic": True,
+            "one_cycle_pulse_interpretation": (
+                "the first surface interaction precedes the first liquid-cavity "
+                "return by 25-38 cycles over this height range; CW fringes do "
+                "not select the peak of that isolated first interaction"
+            ),
+        },
         "assumptions": [
-            "ideal phase-only refocusing to every meniscus height",
-            "forward-wave intensity immediately below the meniscus",
+            "phase-only on-axis pressure optimization at every meniscus height",
+            "signed forward-wave axial flux immediately below the meniscus",
+            "total pressure, velocity, and first-order oscillatory displacement "
+            "are also stored in the NPZ",
             "flat DMSO-air interface",
             "zero material attenuation because measured values were not supplied",
         ],
@@ -269,11 +324,11 @@ def main() -> None:
         json.dump(summary, handle, indent=2, ensure_ascii=False)
 
     print(
-        f"Interferenz: {float(np.min(gain_db)):.2f} bis "
+        f"Interference: {float(np.min(gain_db)):.2f} to "
         f"{float(np.max(gain_db)):.2f} dB"
     )
     print(
-        f"Fransenabstand: {fringe_spacing_m * 1e3:.4f} mm; "
+        f"Fringe spacing: {fringe_spacing_m * 1e3:.4f} mm; "
         f"λ/2: {dmso.sound_speed_m_s / (2.0 * FREQUENCY_HZ) * 1e3:.4f} mm"
     )
     print(f"Plot: {figure_path.resolve()}")

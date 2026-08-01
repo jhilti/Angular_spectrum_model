@@ -7,9 +7,23 @@ M. M. Palaiologou, G. K. Arianas, N. G. Tsierkezos,
 293.15 and 313.15 K", Journal of Solution Chemistry 35 (2006), 1551-1565.
 https://doi.org/10.1007/s10953-006-9082-5
 
+Pure-water sound speed is evaluated with the Marczak polynomial:
+
+A. Marczak, "Water as a standard in the measurements of speed of sound in
+liquids", Journal of the Acoustical Society of America 102 (1997), 2776-2779.
+https://doi.org/10.1121/1.420332
+
+Pure-water density is evaluated with the atmospheric-pressure correlation of:
+
+G. S. Kell, "Density, Thermal Expansivity, and Compressibility of Liquid Water
+from 0 deg to 150 deg C", Journal of Chemical & Engineering Data 20 (1975),
+97-105. https://doi.org/10.1021/je60064a005
+
 Composition interpolation is performed in DMSO mole fraction at each measured
-temperature, followed by linear temperature interpolation.  This preserves the
-strongly non-linear speed-of-sound curve of water/DMSO mixtures.
+temperature, followed by linear temperature interpolation. The pure-water
+table endpoints are anchored to the Marczak/Kell correlations so the mixture
+model is continuous at zero DMSO. This preserves the strongly non-linear
+speed-of-sound curve of water/DMSO mixtures.
 """
 
 from __future__ import annotations
@@ -76,6 +90,15 @@ class DMSOWaterProperties:
     sound_speed_m_s: float
 
 
+@dataclass(frozen=True)
+class WaterProperties:
+    """Atmospheric-pressure properties of pure water."""
+
+    temperature_c: float
+    density_kg_m3: float
+    sound_speed_m_s: float
+
+
 def _validate_fraction(value: ArrayLike) -> NDArray[np.float64]:
     fraction = np.asarray(value, dtype=float)
     if np.any(~np.isfinite(fraction)) or np.any(
@@ -92,9 +115,37 @@ def _pure_density_g_cm3(temperature_c: float, component: str) -> float:
         value_20 = _DATA_20C[-1, column]
         value_40 = _DATA_40C[-1, column]
     else:
-        value_20 = _DATA_20C[0, column]
-        value_40 = _DATA_40C[0, column]
+        return _water_density_kg_m3(temperature_c) / 1000.0
     return float(value_20 + temperature_weight * (value_40 - value_20))
+
+
+def _water_sound_speed_m_s(temperature_c: float) -> float:
+    """Marczak polynomial for pure water at atmospheric pressure."""
+
+    temperature = float(temperature_c)
+    return float(
+        1402.385
+        + 5.038813 * temperature
+        - 5.799136e-2 * temperature**2
+        + 3.287156e-4 * temperature**3
+        - 1.398845e-6 * temperature**4
+        + 2.787860e-9 * temperature**5
+    )
+
+
+def _water_density_kg_m3(temperature_c: float) -> float:
+    """Kell atmospheric-pressure density correlation for pure water."""
+
+    temperature = float(temperature_c)
+    return float(
+        1000.0
+        * (
+            1.0
+            - (temperature + 288.9414)
+            / (508929.2 * (temperature + 68.12963))
+            * (temperature - 3.9863) ** 2
+        )
+    )
 
 
 def dmso_concentration_to_mole_fraction(
@@ -147,26 +198,57 @@ def dmso_water_properties(
     if not np.isfinite(temperature_c) or not 20.0 <= temperature_c <= 40.0:
         raise ValueError("temperature_c must lie between 20 and 40 degC")
     fraction = float(_validate_fraction(dmso_fraction))
+    if fraction == 0.0:
+        pure_water = water_properties(temperature_c)
+        return DMSOWaterProperties(
+            dmso_fraction=0.0,
+            basis=basis,
+            temperature_c=temperature_c,
+            dmso_mole_fraction=0.0,
+            density_kg_m3=pure_water.density_kg_m3,
+            sound_speed_m_s=pure_water.sound_speed_m_s,
+        )
     mole_fraction = float(
         dmso_concentration_to_mole_fraction(
             fraction, basis=basis, temperature_c=temperature_c
         )
     )
     temperature_weight = (temperature_c - 20.0) / 20.0
-    density_20 = np.interp(
-        mole_fraction, _DATA_20C[:, 0], _DATA_20C[:, 1]
+    composition_grid = np.union1d(_DATA_20C[:, 0], _DATA_40C[:, 0])
+    density_20_grid = np.interp(
+        composition_grid,
+        _DATA_20C[:, 0],
+        _DATA_20C[:, 1],
     )
-    density_40 = np.interp(
-        mole_fraction, _DATA_40C[:, 0], _DATA_40C[:, 1]
+    density_40_grid = np.interp(
+        composition_grid,
+        _DATA_40C[:, 0],
+        _DATA_40C[:, 1],
     )
-    speed_20 = np.interp(
-        mole_fraction, _DATA_20C[:, 0], _DATA_20C[:, 2]
+    speed_20_grid = np.interp(
+        composition_grid,
+        _DATA_20C[:, 0],
+        _DATA_20C[:, 2],
     )
-    speed_40 = np.interp(
-        mole_fraction, _DATA_40C[:, 0], _DATA_40C[:, 2]
+    speed_40_grid = np.interp(
+        composition_grid,
+        _DATA_40C[:, 0],
+        _DATA_40C[:, 2],
     )
-    density = density_20 + temperature_weight * (density_40 - density_20)
-    speed = speed_20 + temperature_weight * (speed_40 - speed_20)
+    density_data = density_20_grid + temperature_weight * (
+        density_40_grid - density_20_grid
+    )
+    speed_data = speed_20_grid + temperature_weight * (
+        speed_40_grid - speed_20_grid
+    )
+    # Linear 20--40 °C interpolation is appropriate for the measured mixture
+    # points, but pure-water c(T) is visibly curved. Anchor the endpoint at the
+    # requested temperature before composition interpolation to avoid a jump
+    # between exactly zero and an infinitesimal DMSO fraction.
+    density_data[0] = _water_density_kg_m3(temperature_c) / 1000.0
+    speed_data[0] = _water_sound_speed_m_s(temperature_c)
+    density = np.interp(mole_fraction, composition_grid, density_data)
+    speed = np.interp(mole_fraction, composition_grid, speed_data)
     return DMSOWaterProperties(
         dmso_fraction=fraction,
         basis=basis,
@@ -174,4 +256,21 @@ def dmso_water_properties(
         dmso_mole_fraction=mole_fraction,
         density_kg_m3=float(density * 1000.0),
         sound_speed_m_s=float(speed),
+    )
+
+
+def water_properties(temperature_c: float = 22.0) -> WaterProperties:
+    """Return temperature-consistent pure-water density and sound speed.
+
+    The Marczak sound-speed polynomial is used over its stated 0--95 degC
+    range. Density follows the Kell atmospheric-pressure correlation. The
+    DMSO-mixture interpolation remains limited to 20--40 degC.
+    """
+
+    if not np.isfinite(temperature_c) or not 0.0 <= temperature_c <= 95.0:
+        raise ValueError("temperature_c must lie between 0 and 95 degC")
+    return WaterProperties(
+        temperature_c=temperature_c,
+        density_kg_m3=_water_density_kg_m3(temperature_c),
+        sound_speed_m_s=_water_sound_speed_m_s(temperature_c),
     )

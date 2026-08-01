@@ -13,9 +13,14 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from .analysis import amplitude_db, fwhm
+from .dmso_mixture import dmso_water_properties, water_properties
 from .grid import CartesianGrid
 from .materials import ElasticPlate, ElasticSolid, Fluid
-from .model import AngularSpectrumModel, FocusedCircularAperture
+from .model import (
+    AngularSpectrumModel,
+    FocusedCircularAperture,
+    validate_focused_grid_support,
+)
 from .plate import (
     elastic_plate_scattering,
     normal_power_transmission,
@@ -24,6 +29,14 @@ from .pulse import (
     gaussian_transducer_response,
     propagate_pulse_on_axis,
     square_burst,
+)
+
+
+_WATER_22C = water_properties(22.0)
+_DMSO_22C = dmso_water_properties(
+    1.0,
+    basis="volume",
+    temperature_c=22.0,
 )
 
 
@@ -37,7 +50,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--output-dir", type=Path, default=Path("results"))
     parser.add_argument("--frequency-mhz", type=float, default=10.0)
     parser.add_argument("--diameter-mm", type=float, default=13.0)
-    parser.add_argument("--focal-length-mm", type=float, default=25.0)
+    parser.add_argument("--focal-length-mm", type=float, default=25.4)
     parser.add_argument("--water-path-mm", type=float, default=20.0)
     parser.add_argument("--plate-thickness-mm", type=float, default=0.78)
     parser.add_argument("--z-after-max-mm", type=float, default=10.0)
@@ -47,10 +60,18 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--radial-samples", type=int, default=4096)
     parser.add_argument("--no-bandlimit", action="store_true")
 
-    parser.add_argument("--water-density", type=float, default=997.77)
-    parser.add_argument("--water-speed", type=float, default=1488.4)
-    parser.add_argument("--dmso-density", type=float, default=1098.4)
-    parser.add_argument("--dmso-speed", type=float, default=1499.0)
+    parser.add_argument(
+        "--water-density", type=float, default=_WATER_22C.density_kg_m3
+    )
+    parser.add_argument(
+        "--water-speed", type=float, default=_WATER_22C.sound_speed_m_s
+    )
+    parser.add_argument(
+        "--dmso-density", type=float, default=_DMSO_22C.density_kg_m3
+    )
+    parser.add_argument(
+        "--dmso-speed", type=float, default=_DMSO_22C.sound_speed_m_s
+    )
     parser.add_argument("--pp-density", type=float, default=900.0)
     parser.add_argument(
         "--pp-longitudinal-speed",
@@ -377,11 +398,26 @@ def _save_pulse_result(
     focus_after_plate_m: float,
     output_dir: Path,
 ) -> dict[str, object]:
+    burst_start_s = 0.5e-6
+    burst_duration_s = 3.0 / frequency_hz
+    nominal_arrival_s = burst_start_s + (
+        model.water_path_m / model.incident_fluid.sound_speed_m_s
+        + model.plate.thickness_m
+        / model.plate.solid.longitudinal_speed_m_s
+        + focus_after_plate_m / model.transmitted_fluid.sound_speed_m_s
+    )
+    record_length_s = max(
+        32.0e-6,
+        nominal_arrival_s
+        + 2.0 * burst_duration_s
+        + max(2.0e-6, 8.0 / frequency_hz),
+    )
     time, drive = square_burst(
         center_frequency_hz=frequency_hz,
         cycles=3.0,
         sample_rate_hz=80.0e6,
-        record_length_s=32.0e-6,
+        record_length_s=record_length_s,
+        start_time_s=burst_start_s,
     )
     response = lambda f: gaussian_transducer_response(
         f,
@@ -439,6 +475,22 @@ def run(args: argparse.Namespace) -> dict[str, object]:
     output_dir.mkdir(parents=True, exist_ok=True)
     frequency_hz = args.frequency_mhz * 1e6
     model = _build_model(args)
+    validate_focused_grid_support(
+        model,
+        maximum_frequency_hz=(1.5 if args.pulse else 1.0) * frequency_hz,
+        propagation_segments=(
+            (
+                "one-way water path",
+                model.incident_fluid,
+                model.water_path_m,
+            ),
+            (
+                "one-way transmitted-fluid scan",
+                model.transmitted_fluid,
+                args.z_after_max_mm * 1e-3,
+            ),
+        ),
+    )
     summary: dict[str, object] = {
         "model": "3D FFT angular spectrum with exact kz and isotropic P-SV plate solve",
         "phasor_convention": "exp(-i omega t)",
