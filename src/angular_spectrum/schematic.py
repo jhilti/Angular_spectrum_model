@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import math
-import textwrap
 
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
@@ -12,6 +11,7 @@ from matplotlib.patches import Polygon, Rectangle
 import numpy as np
 
 from .app_model import SimulationInputs
+from .dmso_mixture import dmso_water_properties, water_properties
 from .labware import LabcytePlate
 
 
@@ -38,6 +38,140 @@ class AcousticStackGeometry:
     @property
     def fill_exceeds_well_depth(self) -> bool:
         return self.meniscus_y_mm > self.well_rim_y_mm
+
+
+@dataclass(frozen=True, slots=True)
+class RefractedRayPreview:
+    """Longitudinal aperture-edge ray through the three modeled layers.
+
+    The preview uses geometric Snell refraction, with the conserved transverse
+    slowness ``sin(theta) / c``.  It is intentionally separate from the exact
+    angular-spectrum result: diffraction, the aperture weighting, elastic
+    P/SV mode conversion, and plate resonances do not have a single ray path.
+
+    ``right_edge_x_mm`` contains the signed lateral coordinate of the ray
+    launched from the positive aperture edge.  The left ray is its mirror.
+    If a longitudinal branch is beyond its critical angle, the coordinates
+    stop at that interface and ``critical_interface`` identifies it.
+    """
+
+    axial_y_mm: tuple[float, ...]
+    right_edge_x_mm: tuple[float, ...]
+    transverse_slowness_s_m: float
+    water_angle_deg: float
+    plate_longitudinal_angle_deg: float | None
+    liquid_angle_deg: float | None
+    ray_focus_y_mm: float | None
+    ray_focus_medium: str | None
+    focus_is_extrapolated_beyond_meniscus: bool
+    critical_interface: str | None
+
+
+def refracted_ray_preview(inputs: SimulationInputs) -> RefractedRayPreview:
+    """Return a geometric aperture-edge ray with Snell-law refraction.
+
+    The aperture is the planar equivalent used by the numerical source model.
+    Its edge ray is aimed at the nominal homogeneous-water focus.  Only the
+    propagating longitudinal branch in the plate is followed; this is a
+    physically interpretable orientation aid, not a replacement for the
+    angular-spectrum/elastic-plate calculation.
+    """
+
+    inputs.validate()
+    radius_mm = 0.5 * inputs.transducer_diameter_mm
+    water_angle = math.atan2(radius_mm, inputs.transducer_focal_length_mm)
+    water_speed = water_properties(inputs.temperature_c).sound_speed_m_s
+    liquid_speed = dmso_water_properties(
+        inputs.dmso_volume_percent / 100.0,
+        basis="volume",
+        temperature_c=inputs.temperature_c,
+    ).sound_speed_m_s
+    transverse_slowness = math.sin(water_angle) / water_speed
+
+    def transmitted_angle(sound_speed_m_s: float) -> float | None:
+        sine = transverse_slowness * sound_speed_m_s
+        # Exactly grazing propagation has an unbounded geometric walkoff and
+        # is not a useful finite ray for this preview.
+        if sine >= 1.0:
+            return None
+        return math.asin(max(0.0, sine))
+
+    plate_angle = transmitted_angle(inputs.plate_longitudinal_speed_m_s)
+    liquid_angle = transmitted_angle(liquid_speed)
+    axial_y = [0.0]
+    right_x = [radius_mm]
+    ray_focus_y: float | None = None
+    ray_focus_medium: str | None = None
+
+    def append_segment(
+        length_mm: float,
+        angle_rad: float,
+        medium: str,
+    ) -> None:
+        nonlocal ray_focus_y, ray_focus_medium
+        y0 = axial_y[-1]
+        x0 = right_x[-1]
+        y1 = y0 + length_mm
+        x1 = x0 - length_mm * math.tan(angle_rad)
+        axial_y.append(y1)
+        right_x.append(x1)
+        if (
+            ray_focus_y is None
+            and x0 >= 0.0
+            and x1 <= 0.0
+            and not math.isclose(x0, x1)
+        ):
+            fraction = x0 / (x0 - x1)
+            ray_focus_y = y0 + fraction * length_mm
+            ray_focus_medium = medium
+
+    append_segment(inputs.water_path_mm, water_angle, "water")
+    critical_interface: str | None = None
+    if plate_angle is None:
+        critical_interface = "water–plate"
+    else:
+        append_segment(
+            inputs.plate_thickness_mm,
+            plate_angle,
+            "plate (longitudinal branch)",
+        )
+        if liquid_angle is None:
+            critical_interface = "plate–liquid"
+        else:
+            append_segment(inputs.fluid_height_mm, liquid_angle, "liquid")
+
+    extrapolated = False
+    if (
+        ray_focus_y is None
+        and critical_interface is None
+        and liquid_angle is not None
+        and right_x[-1] > 0.0
+        and math.tan(liquid_angle) > 0.0
+    ):
+        # This is useful for seeing whether the geometric focus lies above the
+        # entered fill, but the dotted continuation is explicitly labelled as
+        # an unbounded-liquid extrapolation: the real free surface interrupts
+        # the ray at the meniscus.
+        ray_focus_y = axial_y[-1] + right_x[-1] / math.tan(liquid_angle)
+        ray_focus_medium = "liquid (extrapolated beyond meniscus)"
+        extrapolated = True
+
+    return RefractedRayPreview(
+        axial_y_mm=tuple(float(value) for value in axial_y),
+        right_edge_x_mm=tuple(float(value) for value in right_x),
+        transverse_slowness_s_m=float(transverse_slowness),
+        water_angle_deg=math.degrees(water_angle),
+        plate_longitudinal_angle_deg=(
+            None if plate_angle is None else math.degrees(plate_angle)
+        ),
+        liquid_angle_deg=(
+            None if liquid_angle is None else math.degrees(liquid_angle)
+        ),
+        ray_focus_y_mm=ray_focus_y,
+        ray_focus_medium=ray_focus_medium,
+        focus_is_extrapolated_beyond_meniscus=extrapolated,
+        critical_interface=critical_interface,
+    )
 
 
 def acoustic_stack_geometry(
@@ -119,51 +253,63 @@ def _well_half_width_mm(
 
 def acoustic_stack_schematic_figure(
     inputs: SimulationInputs,
-    focus_from_aperture_mm: float,
+    focus_from_aperture_mm: float | None,
     plate: LabcytePlate,
 ) -> Figure:
-    """Draw the upward-facing transducer, plate well, and planar meniscus.
+    """Draw a portrait preview of the upward-facing acoustic stack.
 
-    Axial coordinates and all displayed dimensions use the simulation values.
-    The translucent cone only communicates convergence and is deliberately not
-    presented as a calculated pressure field.
+    The blue path is the longitudinal aperture-edge ray returned by
+    :func:`refracted_ray_preview`; its visible interface kinks follow Snell's
+    law.  ``focus_from_aperture_mm`` may be ``None`` for a ray-only preview or
+    the independently calculated angular-spectrum focus for a distinct marker.
     """
 
-    geometry = acoustic_stack_geometry(inputs, focus_from_aperture_mm, plate)
+    ray = refracted_ray_preview(inputs)
+    display_focus_mm = (
+        inputs.transducer_focal_length_mm
+        if focus_from_aperture_mm is None
+        else focus_from_aperture_mm
+    )
+    geometry = acoustic_stack_geometry(inputs, display_focus_mm, plate)
     colors = {
-        "ink": "#10282f",
-        "muted": "#657b80",
-        "water": "#b9e2ea",
-        "water_line": "#3b95a3",
-        "pp": "#f0bd73",
-        "coc": "#c7b7df",
-        "dmso": "#9bd8c6",
-        "dmso_line": "#16846f",
-        "air": "#f7f9f8",
-        "focus": "#d49a35",
-        "beam": "#147d88",
+        "ink": "#17343d",
+        "muted": "#687d84",
+        "water": "#dceff5",
+        "water_line": "#318da2",
+        "plate": "#d9e3e6",
+        "plate_dark": "#45646d",
+        "liquid": "#f7b455",
+        "liquid_light": "#fbd8a2",
+        "liquid_line": "#e77925",
+        "air": "#fcfdfd",
+        "asm_focus": "#e77925",
+        "ray": "#176c82",
         "transducer": "#244f59",
-        "paper": "#fbfcfb",
-        "line": "#d7e4e1",
+        "paper": "#fcfdfd",
+        "line": "#d9e4e7",
     }
-    plate_color = colors["pp"] if plate.material == "polypropylene" else colors["coc"]
 
     radius = geometry.aperture_radius_mm
-    x_limit = max(radius + 2.7, geometry.well_top_radius_mm + 4.4)
-    lower_y = -max(2.0, 0.13 * inputs.transducer_focal_length_mm)
-    upper_y = max(
+    x_limit = max(radius + 3.0, geometry.well_top_radius_mm + 4.6)
+    focus_candidates = [
         geometry.well_rim_y_mm,
         geometry.meniscus_y_mm,
-        geometry.focus_y_mm,
-    ) + 1.6
+    ]
+    if focus_from_aperture_mm is not None:
+        focus_candidates.append(focus_from_aperture_mm)
+    if ray.ray_focus_y_mm is not None:
+        focus_candidates.append(ray.ray_focus_y_mm)
+    lower_y = -max(2.0, min(4.0, 0.13 * inputs.transducer_focal_length_mm))
+    if focus_from_aperture_mm is not None:
+        lower_y = min(lower_y, focus_from_aperture_mm - 1.0)
+    upper_y = max(focus_candidates) + 3.2
 
-    figure = plt.figure(figsize=(11.8, 6.7), constrained_layout=True)
+    figure, axis = plt.subplots(
+        figsize=(5.8, 8.2),
+        constrained_layout=True,
+    )
     figure.patch.set_facecolor(colors["paper"])
-    grid = figure.add_gridspec(1, 2, width_ratios=(1.45, 0.78), wspace=0.05)
-    axis = figure.add_subplot(grid[0, 0])
-    details = figure.add_subplot(grid[0, 1])
     axis.set_facecolor(colors["air"])
-    details.set_facecolor(colors["paper"])
 
     axis.add_patch(
         Rectangle(
@@ -183,7 +329,7 @@ def acoustic_stack_schematic_figure(
             (-x_limit, geometry.water_plate_y_mm),
             2.0 * x_limit,
             inputs.plate_thickness_mm,
-            facecolor=plate_color,
+            facecolor=colors["plate"],
             edgecolor=colors["ink"],
             linewidth=1.0,
             alpha=0.86,
@@ -205,7 +351,7 @@ def acoustic_stack_schematic_figure(
             Polygon(
                 wall,
                 closed=True,
-                facecolor=plate_color,
+                facecolor=colors["plate"],
                 edgecolor=colors["ink"],
                 linewidth=1.0,
                 alpha=0.74,
@@ -227,9 +373,9 @@ def acoustic_stack_schematic_figure(
             Polygon(
                 liquid_polygon,
                 closed=True,
-                facecolor=colors["dmso"],
+                facecolor=colors["liquid"],
                 edgecolor="none",
-                alpha=0.72,
+                alpha=0.82,
                 zorder=1,
             )
         )
@@ -239,8 +385,8 @@ def acoustic_stack_schematic_figure(
                 (-geometry.well_top_radius_mm, geometry.well_rim_y_mm),
                 2.0 * geometry.well_top_radius_mm,
                 geometry.meniscus_y_mm - geometry.well_rim_y_mm,
-                facecolor=colors["dmso"],
-                edgecolor=colors["dmso_line"],
+                facecolor=colors["liquid_light"],
+                edgecolor=colors["liquid_line"],
                 hatch="///",
                 linewidth=0.8,
                 alpha=0.38,
@@ -254,17 +400,54 @@ def acoustic_stack_schematic_figure(
     axis.plot(
         [-meniscus_half_width, meniscus_half_width],
         [geometry.meniscus_y_mm, geometry.meniscus_y_mm],
-        color=colors["dmso_line"],
+        color=colors["liquid_line"],
         linewidth=3.0,
         solid_capstyle="round",
         zorder=7,
     )
 
-    # Spherical-cap transducer face with its concavity pointing upward.
+    # A spherical-cap icon sits below the planar equivalent aperture at y=0.
+    # Subtracting the edge sag keeps the rim on that reference plane.
     focal_radius = max(inputs.transducer_focal_length_mm, radius + 0.05)
     transducer_x = np.linspace(-radius, radius, 240)
-    transducer_y = focal_radius - np.sqrt(
+    raw_transducer_y = focal_radius - np.sqrt(
         np.maximum(focal_radius**2 - transducer_x**2, 0.0)
+    )
+    transducer_y = raw_transducer_y - float(raw_transducer_y[-1])
+    body_top_y = float(np.min(transducer_y)) - 0.18
+    body_bottom_y = body_top_y - 2.15
+    body_half_width = min(3.15, 0.50 * radius)
+    lower_y = min(lower_y, body_bottom_y - 0.28)
+    axis.add_patch(
+        Rectangle(
+            (-body_half_width, body_bottom_y),
+            2.0 * body_half_width,
+            body_top_y - body_bottom_y,
+            facecolor="#1c2d57",
+            edgecolor="#0e343d",
+            linewidth=1.1,
+            zorder=7,
+        )
+    )
+    for rib_y in np.linspace(body_bottom_y + 0.38, body_top_y - 0.38, 4):
+        axis.plot(
+            [-body_half_width, body_half_width],
+            [rib_y, rib_y],
+            color="#78909a",
+            linewidth=0.55,
+            alpha=0.78,
+            zorder=8,
+        )
+    axis.text(
+        0.0,
+        (body_bottom_y + body_top_y) / 2.0,
+        f"{inputs.excitation_frequency_mhz:g} MHz\nTRANSDUCER",
+        color="#ffffff",
+        fontsize=6.5,
+        fontweight="bold",
+        ha="center",
+        va="center",
+        zorder=9,
     )
     axis.fill_between(
         transducer_x,
@@ -281,62 +464,166 @@ def acoustic_stack_schematic_figure(
         linewidth=1.7,
         zorder=9,
     )
+    axis.text(
+        body_half_width + 0.2,
+        body_bottom_y + 0.12,
+        f"{inputs.transducer_diameter_mm:.1f} mm aperture",
+        color=colors["muted"],
+        fontsize=6.8,
+        fontweight="bold",
+        ha="left",
+        va="bottom",
+    )
 
-    beam_start_y = float(np.max(transducer_y))
-    beam_end_y = max(geometry.meniscus_y_mm, geometry.focus_y_mm)
-    if beam_end_y > beam_start_y and geometry.focus_y_mm > 0.0:
-        beam_y = np.linspace(beam_start_y, beam_end_y, 260)
-        beam_half_width = radius * np.abs(
-            1.0 - beam_y / geometry.focus_y_mm
+    # Draw the two signed edge rays.  Inserting the focus into the polyline
+    # makes the filled preview close to zero cleanly if the rays cross inside
+    # one of the layers.
+    ray_y = list(ray.axial_y_mm)
+    ray_x = list(ray.right_edge_x_mm)
+    if (
+        ray.ray_focus_y_mm is not None
+        and not ray.focus_is_extrapolated_beyond_meniscus
+    ):
+        for index in range(len(ray_y) - 1):
+            if ray_y[index] < ray.ray_focus_y_mm < ray_y[index + 1]:
+                ray_y.insert(index + 1, ray.ray_focus_y_mm)
+                ray_x.insert(index + 1, 0.0)
+                break
+    for index in range(len(ray_y) - 1):
+        segment_y = np.asarray(ray_y[index : index + 2])
+        segment_half_width = np.abs(
+            np.asarray(ray_x[index : index + 2])
         )
-        beam_half_width = np.minimum(beam_half_width, x_limit)
         axis.fill_betweenx(
-            beam_y,
-            -beam_half_width,
-            beam_half_width,
-            color=colors["beam"],
-            alpha=0.11,
+            segment_y,
+            -segment_half_width,
+            segment_half_width,
+            color=colors["ray"],
+            alpha=0.09,
             zorder=4,
         )
+    axis.plot(
+        ray_x,
+        ray_y,
+        color=colors["ray"],
+        linewidth=1.45,
+        marker="o",
+        markersize=2.8,
+        label="Snell edge rays",
+        zorder=6,
+    )
+    axis.plot(
+        -np.asarray(ray_x),
+        ray_y,
+        color=colors["ray"],
+        linewidth=1.45,
+        marker="o",
+        markersize=2.8,
+        zorder=6,
+    )
+
+    if ray.focus_is_extrapolated_beyond_meniscus:
         axis.plot(
-            beam_half_width,
-            beam_y,
-            color=colors["beam"],
-            linewidth=1.1,
-            alpha=0.72,
+            [ray.right_edge_x_mm[-1], 0.0],
+            [ray.axial_y_mm[-1], ray.ray_focus_y_mm],
+            color=colors["ray"],
+            linewidth=1.0,
+            linestyle=":",
+            alpha=0.7,
             zorder=5,
         )
         axis.plot(
-            -beam_half_width,
-            beam_y,
-            color=colors["beam"],
-            linewidth=1.1,
-            alpha=0.72,
+            [-ray.right_edge_x_mm[-1], 0.0],
+            [ray.axial_y_mm[-1], ray.ray_focus_y_mm],
+            color=colors["ray"],
+            linewidth=1.0,
+            linestyle=":",
+            alpha=0.7,
             zorder=5,
         )
 
-    axis.scatter(
-        [0.0],
-        [geometry.focus_y_mm],
-        s=115,
-        marker="*",
-        color=colors["focus"],
-        edgecolor="#8d641f",
-        linewidth=0.8,
-        zorder=10,
-    )
-    axis.annotate(
-        "Modeled focus",
-        xy=(0.0, geometry.focus_y_mm),
-        xytext=(0.65, geometry.focus_y_mm + 0.8),
-        color=colors["ink"],
-        fontsize=8.8,
-        fontweight="bold",
-        arrowprops={"arrowstyle": "-", "color": colors["focus"], "lw": 1.0},
-        zorder=11,
-    )
+    if ray.ray_focus_y_mm is not None:
+        ray_focus_label = (
+            "Ray focus (liquid extrap.)"
+            if ray.focus_is_extrapolated_beyond_meniscus
+            else "Snell ray focus"
+        )
+        axis.scatter(
+            [0.0],
+            [ray.ray_focus_y_mm],
+            s=70,
+            marker="o",
+            facecolor=colors["paper"],
+            edgecolor=colors["ray"],
+            linewidth=1.5,
+            label=ray_focus_label,
+            zorder=10,
+        )
+        axis.annotate(
+            ray_focus_label,
+            xy=(0.0, ray.ray_focus_y_mm),
+            xytext=(-2.05, ray.ray_focus_y_mm + 0.18),
+            color=colors["ray"],
+            fontsize=7.8,
+            fontweight="bold",
+            ha="right",
+            arrowprops={"arrowstyle": "-", "color": colors["ray"], "lw": 0.8},
+            zorder=11,
+        )
 
-    dimension_x = x_limit - 1.05
+    if ray.critical_interface is not None:
+        critical_y = ray.axial_y_mm[-1]
+        critical_x = abs(ray.right_edge_x_mm[-1])
+        axis.scatter(
+            [-critical_x, critical_x],
+            [critical_y, critical_y],
+            marker="x",
+            s=34,
+            color=colors["liquid_line"],
+            linewidth=1.3,
+            zorder=11,
+        )
+        axis.annotate(
+            f"Longitudinal edge ray beyond critical angle\n"
+            f"at {ray.critical_interface}",
+            xy=(critical_x, critical_y),
+            xytext=(0.55 * x_limit, critical_y + 1.0),
+            color=colors["muted"],
+            fontsize=7.2,
+            ha="center",
+            arrowprops={"arrowstyle": "-", "color": colors["muted"], "lw": 0.8},
+            zorder=12,
+        )
+
+    if focus_from_aperture_mm is not None:
+        axis.scatter(
+            [0.0],
+            [focus_from_aperture_mm],
+            s=125,
+            marker="*",
+            color=colors["asm_focus"],
+            edgecolor="#9b491b",
+            linewidth=0.7,
+            label="ASM axial focus",
+            zorder=12,
+        )
+        axis.annotate(
+            "ASM axial focus",
+            xy=(0.0, focus_from_aperture_mm),
+            xytext=(2.05, focus_from_aperture_mm + 0.18),
+            color=colors["asm_focus"],
+            fontsize=7.8,
+            fontweight="bold",
+            ha="left",
+            arrowprops={
+                "arrowstyle": "-",
+                "color": colors["asm_focus"],
+                "lw": 0.9,
+            },
+            zorder=13,
+        )
+
+    dimension_x = x_limit - 0.72
     _dimension(
         axis,
         x_mm=dimension_x,
@@ -351,15 +638,15 @@ def acoustic_stack_schematic_figure(
         low_mm=geometry.plate_fluid_y_mm,
         high_mm=geometry.meniscus_y_mm,
         label=f"fill {inputs.fluid_height_mm:.2f} mm",
-        color=colors["dmso_line"],
+        color=colors["liquid_line"],
     )
 
     axis.text(
-        -x_limit + 0.35,
+        -x_limit + 0.42,
         geometry.water_plate_y_mm / 2.0,
-        "WATER",
+        "COUPLING WATER",
         color=colors["water_line"],
-        fontsize=8.4,
+        fontsize=7.8,
         fontweight="bold",
         alpha=0.9,
         rotation=90,
@@ -370,24 +657,38 @@ def acoustic_stack_schematic_figure(
         geometry.plate_fluid_y_mm
         + max(0.25, min(inputs.fluid_height_mm, plate.well_depth_mm) / 2.0),
         f"{inputs.dmso_volume_percent:.0f}% DMSO",
-        color="#116956",
-        fontsize=8.0,
+        color="#7d4217",
+        fontsize=7.8,
         fontweight=700,
         ha="center",
         va="center",
         rotation=90,
         zorder=6,
     )
+    material_short = "PP" if plate.material == "polypropylene" else "COC"
     axis.text(
-        -x_limit + 0.35,
-        (geometry.water_plate_y_mm + geometry.plate_fluid_y_mm) / 2.0,
-        f"{plate.id} bottom · {inputs.plate_thickness_mm:.2f} mm",
-        color="#704e1c",
-        fontsize=7.4,
+        -x_limit + 0.4,
+        geometry.plate_fluid_y_mm
+        + min(2.0, 0.35 * plate.well_depth_mm),
+        f"{plate.id} · {plate.well_count}-WELL SOURCE PLATE\n"
+        f"{inputs.plate_thickness_mm:.2f} mm {material_short} BOTTOM",
+        color=colors["plate_dark"],
+        fontsize=6.9,
         fontweight="bold",
         ha="left",
-        va="center",
+        va="bottom",
         zorder=7,
+    )
+    axis.text(
+        0.0,
+        geometry.meniscus_y_mm + 0.24,
+        "PLANAR MENISCUS",
+        color=colors["liquid_line"],
+        fontsize=7.0,
+        fontweight="bold",
+        ha="center",
+        va="bottom",
+        zorder=8,
     )
     axis.axhline(
         geometry.water_plate_y_mm,
@@ -396,106 +697,95 @@ def acoustic_stack_schematic_figure(
         alpha=0.7,
         zorder=6,
     )
+    axis.axhline(
+        geometry.plate_fluid_y_mm,
+        color=colors["plate_dark"],
+        linewidth=0.7,
+        alpha=0.72,
+        zorder=6,
+    )
+    axis.axvline(
+        0.0,
+        color=colors["line"],
+        linewidth=0.7,
+        linestyle="--",
+        zorder=0,
+    )
+    axis.annotate(
+        "EJECTION / AIR",
+        xy=(0.0, upper_y - 1.35),
+        xytext=(0.0, upper_y - 2.25),
+        color=colors["muted"],
+        fontsize=7.5,
+        fontweight="bold",
+        ha="center",
+        arrowprops={
+            "arrowstyle": "-|>",
+            "color": colors["liquid_line"],
+            "lw": 1.0,
+        },
+    )
     axis.set(
         xlim=(-x_limit, x_limit),
         ylim=(lower_y, upper_y),
         xlabel="Lateral position [mm]",
-        ylabel="Distance from aperture centre [mm]",
+        ylabel="Axial distance from aperture [mm]  ↑",
     )
-    axis.set_aspect(0.43)
+    axis.set_aspect("equal", adjustable="box")
     axis.spines[["top", "right"]].set_visible(False)
-    axis.spines[["left", "bottom"]].set_color("#b9cbc7")
-    axis.tick_params(colors=colors["muted"], labelsize=8.5)
-    axis.grid(axis="y", color=colors["line"], linewidth=0.65, alpha=0.72)
+    axis.spines[["left", "bottom"]].set_color("#b7c8cd")
+    axis.tick_params(colors=colors["muted"], labelsize=8.0)
+    axis.grid(axis="y", color=colors["line"], linewidth=0.55, alpha=0.62)
     axis.set_axisbelow(True)
-
-    offset = geometry.focus_offset_from_meniscus_mm
-    alignment = (
-        "aligned"
-        if abs(offset) < 0.05
-        else f"{abs(offset):.2f} mm {'above' if offset > 0 else 'below'} surface"
+    angle_text = (
+        f"Snell edge ray (longitudinal branch): "
+        f"water {ray.water_angle_deg:.1f}°"
     )
-    material_label = "polypropylene" if plate.material == "polypropylene" else "COC"
-    details.text(
-        0.0,
-        0.96,
-        plate.id,
-        transform=details.transAxes,
-        color=colors["ink"],
-        fontsize=19,
-        fontweight="bold",
-        va="top",
-    )
-    details.text(
-        0.0,
-        0.88,
-        textwrap.fill(plate.name, width=41),
-        transform=details.transAxes,
+    if ray.plate_longitudinal_angle_deg is not None:
+        angle_text += f" → plate {ray.plate_longitudinal_angle_deg:.1f}°"
+    if ray.liquid_angle_deg is not None:
+        angle_text += f" → liquid {ray.liquid_angle_deg:.1f}°"
+    axis.text(
+        0.01,
+        0.095,
+        angle_text
+        + "\nRay preview excludes diffraction, P/SV conversion, and plate resonances.",
+        transform=axis.transAxes,
         color=colors["muted"],
-        fontsize=9.3,
-        va="top",
-        linespacing=1.35,
-    )
-
-    rows = (
-        ("Plate family", plate.family),
-        ("Material", material_label),
-        ("Well format", f"{plate.well_count} wells · {plate.well_volume_ul:g} µL"),
-        ("Well opening", f"{plate.well_top_width_mm:g} mm · {plate.well_pitch_mm:g} mm pitch"),
-        ("Bottom", f"{inputs.plate_thickness_mm:.2f} mm"),
-        ("Current focus", f"{geometry.focus_y_mm:.2f} mm from aperture"),
-        ("Meniscus", f"{geometry.meniscus_y_mm:.2f} mm from aperture"),
-        ("Alignment", alignment),
-    )
-    row_y = 0.67
-    for label, value in rows:
-        details.text(
-            0.0,
-            row_y,
-            label.upper(),
-            transform=details.transAxes,
-            color=colors["muted"],
-            fontsize=7.2,
-            fontweight="bold",
-            va="top",
-        )
-        details.text(
-            0.0,
-            row_y - 0.030,
-            value,
-            transform=details.transAxes,
-            color=colors["ink"],
-            fontsize=9.4,
-            fontweight="bold",
-            va="top",
-        )
-        details.plot(
-            [0.0, 0.92],
-            [row_y - 0.066, row_y - 0.066],
-            transform=details.transAxes,
-            color=colors["line"],
-            linewidth=0.7,
-        )
-        row_y -= 0.078
-
-    details.text(
-        0.0,
-        0.012,
-        "Scaled axial geometry · planar modeled meniscus\n"
-        "Beam cone is illustrative, not a pressure field.",
-        transform=details.transAxes,
-        color=colors["muted"],
-        fontsize=7.6,
+        fontsize=6.9,
         va="bottom",
-        linespacing=1.35,
-    )
-    details.set_axis_off()
-    figure.suptitle(
-        "Acoustic stack cross-section",
-        x=0.02,
         ha="left",
+        bbox={
+            "boxstyle": "round,pad=0.42",
+            "facecolor": colors["paper"],
+            "edgecolor": colors["line"],
+            "alpha": 0.93,
+        },
+        zorder=20,
+    )
+    handles, labels = axis.get_legend_handles_labels()
+    unique_handles: list[object] = []
+    unique_labels: list[str] = []
+    for handle, label in zip(handles, labels, strict=True):
+        if label not in unique_labels:
+            unique_handles.append(handle)
+            unique_labels.append(label)
+    axis.legend(
+        unique_handles,
+        unique_labels,
+        loc="upper center",
+        bbox_to_anchor=(0.5, 0.995),
+        frameon=False,
+        fontsize=6.6,
+        ncols=max(1, len(unique_labels)),
+        columnspacing=1.0,
+        handletextpad=0.45,
+    )
+    axis.set_title(
+        "Upward acoustic path",
         color=colors["ink"],
-        fontsize=15,
+        fontsize=14,
         fontweight="bold",
+        pad=10,
     )
     return figure
