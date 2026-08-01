@@ -203,6 +203,10 @@ st.markdown(
         color: #ffffff;
         box-shadow: 0 5px 12px rgba(28, 45, 87, .22);
     }
+    [data-testid="stSidebar"] .stButton > button p,
+    [data-testid="stSidebar"] [data-testid="stFormSubmitButton"] > button p {
+        color: #ffffff;
+    }
     h1, h2, h3 {
         color: var(--ink);
         letter-spacing: -.025em;

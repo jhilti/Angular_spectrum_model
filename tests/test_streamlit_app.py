@@ -64,3 +64,5 @@ def test_scientific_instrument_theme_uses_hamilton_navy_and_green() -> None:
     assert "--accent: #00f091" in stylesheet
     assert "--accent-soft: #e8fff6" in stylesheet
     assert "border-radius: .3rem" in stylesheet
+    assert '[data-testid="stformsubmitbutton"] > button p' in stylesheet
+    assert "color: #ffffff" in stylesheet
