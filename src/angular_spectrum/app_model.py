@@ -16,6 +16,10 @@ from .dmso_mixture import (
 )
 from .grid import CartesianGrid
 from .materials import ElasticPlate, ElasticSolid, Fluid
+from .meniscus import (
+    MeniscusCavityMetric,
+    configured_meniscus_cavity_metric,
+)
 from .model import (
     AngularSpectrumModel,
     FocusedCircularAperture,
@@ -107,6 +111,7 @@ class SimulationInputs:
     pp_shear_attenuation_db_per_m: float = 0.0
     fluid_attenuation_db_per_m: float = 0.0
     attenuation_power: float = 1.0
+    fill_height_uncertainty_mm: float = 0.05
     numerical_preset: str = "Fast"
 
     def validate(self) -> None:
@@ -137,10 +142,15 @@ class SimulationInputs:
             "plate shear attenuation": self.pp_shear_attenuation_db_per_m,
             "fluid attenuation": self.fluid_attenuation_db_per_m,
             "attenuation power": self.attenuation_power,
+            "fill height uncertainty": self.fill_height_uncertainty_mm,
         }
         for name, value in nonnegative.items():
             if not np.isfinite(value) or value < 0.0:
                 raise ValueError(f"{name} must be finite and >= 0")
+        if self.fill_height_uncertainty_mm >= self.fluid_height_mm:
+            raise ValueError(
+                "fill height uncertainty must be smaller than fluid height"
+            )
         if not self.plate_part_number.strip():
             raise ValueError("plate part number must not be empty")
         if not self.plate_material_name.strip():
@@ -214,6 +224,7 @@ class InteractiveSimulationResult:
     optimal_water_path_boundary_limited: bool
     simulated_frequency_bin_count: int
     fluid_cavity_echo_count: int
+    meniscus_cavity: MeniscusCavityMetric
 
     @property
     def time_relative_us(self) -> NDArray[np.float64]:
@@ -715,6 +726,17 @@ def run_interactive_simulation(
         + inputs.plate_thickness_mm
         + focus_after_pp_mm
     )
+    meniscus_cavity = configured_meniscus_cavity_metric(
+        model,
+        inputs.excitation_frequency_mhz * 1e6,
+        inputs.fluid_height_mm * 1e-3,
+        backing_fluid=air,
+        excitation_cycles=inputs.excitation_cycles,
+        height_uncertainty_m=inputs.fill_height_uncertainty_mm * 1e-3,
+        height_sensitivity_samples=9,
+        cavity_relative_tolerance=1.0e-6,
+        maximum_cavity_orders=128,
+    )
 
     return InteractiveSimulationResult(
         inputs=inputs,
@@ -748,4 +770,5 @@ def run_interactive_simulation(
             np.count_nonzero(pulse_echo.simulated_bin_mask)
         ),
         fluid_cavity_echo_count=pulse_echo.fluid_cavity_echo_count,
+        meniscus_cavity=meniscus_cavity,
     )

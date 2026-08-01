@@ -28,6 +28,8 @@ class AcousticStackGeometry:
     aperture_radius_mm: float
     well_bottom_radius_mm: float
     well_top_radius_mm: float
+    well_pitch_mm: float
+    displayed_well_centres_mm: tuple[float, ...]
 
     @property
     def focus_offset_from_meniscus_mm(self) -> float:
@@ -38,6 +40,18 @@ class AcousticStackGeometry:
     @property
     def fill_exceeds_well_depth(self) -> bool:
         return self.meniscus_y_mm > self.well_rim_y_mm
+
+    @property
+    def top_interwell_web_mm(self) -> float:
+        """Nominal material width between adjacent well openings."""
+
+        return self.well_pitch_mm - 2.0 * self.well_top_radius_mm
+
+    @property
+    def bottom_interwell_web_mm(self) -> float:
+        """Nominal material width between adjacent well floors."""
+
+        return self.well_pitch_mm - 2.0 * self.well_bottom_radius_mm
 
 
 @dataclass(frozen=True, slots=True)
@@ -186,6 +200,21 @@ def acoustic_stack_geometry(
         raise ValueError("focus_from_aperture_mm must be finite")
     water_plate = inputs.water_path_mm
     plate_fluid = water_plate + inputs.plate_thickness_mm
+    aperture_radius = inputs.transducer_diameter_mm / 2.0
+    # Show enough repeated wells that the local plate cut extends beyond the
+    # full transducer aperture.  Two neighbours on either side is the minimum;
+    # small-pitch plates naturally show more wells at the same physical scale.
+    wells_per_side = max(
+        2,
+        math.ceil(
+            (aperture_radius + plate.well_top_width_mm / 2.0)
+            / plate.well_pitch_mm
+        ),
+    )
+    displayed_centres = tuple(
+        well_index * plate.well_pitch_mm
+        for well_index in range(-wells_per_side, wells_per_side + 1)
+    )
     return AcousticStackGeometry(
         aperture_y_mm=0.0,
         water_plate_y_mm=water_plate,
@@ -193,9 +222,11 @@ def acoustic_stack_geometry(
         meniscus_y_mm=plate_fluid + inputs.fluid_height_mm,
         well_rim_y_mm=plate_fluid + plate.well_depth_mm,
         focus_y_mm=float(focus_from_aperture_mm),
-        aperture_radius_mm=inputs.transducer_diameter_mm / 2.0,
+        aperture_radius_mm=aperture_radius,
         well_bottom_radius_mm=plate.well_bottom_width_mm / 2.0,
         well_top_radius_mm=plate.well_top_width_mm / 2.0,
+        well_pitch_mm=plate.well_pitch_mm,
+        displayed_well_centres_mm=displayed_centres,
     )
 
 
@@ -251,6 +282,35 @@ def _well_half_width_mm(
     )
 
 
+def _well_cavity_polygon(
+    centre_x_mm: float,
+    geometry: AcousticStackGeometry,
+) -> np.ndarray:
+    """Return a catalogue-scaled trapezoidal well cavity."""
+
+    return np.asarray(
+        [
+            [
+                centre_x_mm - geometry.well_bottom_radius_mm,
+                geometry.plate_fluid_y_mm,
+            ],
+            [
+                centre_x_mm + geometry.well_bottom_radius_mm,
+                geometry.plate_fluid_y_mm,
+            ],
+            [
+                centre_x_mm + geometry.well_top_radius_mm,
+                geometry.well_rim_y_mm,
+            ],
+            [
+                centre_x_mm - geometry.well_top_radius_mm,
+                geometry.well_rim_y_mm,
+            ],
+        ],
+        dtype=float,
+    )
+
+
 def acoustic_stack_schematic_figure(
     inputs: SimulationInputs,
     focus_from_aperture_mm: float | None,
@@ -290,7 +350,16 @@ def acoustic_stack_schematic_figure(
     }
 
     radius = geometry.aperture_radius_mm
-    x_limit = max(radius + 3.0, geometry.well_top_radius_mm + 4.6)
+    # A pitch-accurate run of wells forms a local cutaway wide enough to cover
+    # the transducer.  The plate continues beyond the two crop marks; these are
+    # deliberately not rendered as physical SBS plate sidewalls.
+    outer_well_centre = max(
+        abs(value) for value in geometry.displayed_well_centres_mm
+    )
+    local_plate_half_width = (
+        outer_well_centre + 0.5 * geometry.well_pitch_mm
+    )
+    x_limit = max(radius + 3.0, local_plate_half_width + 2.0)
     focus_candidates = [
         geometry.well_rim_y_mm,
         geometry.meniscus_y_mm,
@@ -323,41 +392,96 @@ def acoustic_stack_schematic_figure(
         )
     )
 
-    # Elastic plate bottom and the two sidewalls around the selected well.
+    # Pitch-accurate local source-plate cutaway.  The catalogue's SVG is a
+    # useful visual reference but contains only one well; using its numeric
+    # JSON fields here lets the neighbouring wells change with the selected
+    # plate family while preserving the exact acoustic floor thickness.
     axis.add_patch(
         Rectangle(
-            (-x_limit, geometry.water_plate_y_mm),
-            2.0 * x_limit,
-            inputs.plate_thickness_mm,
+            (-local_plate_half_width, geometry.water_plate_y_mm),
+            2.0 * local_plate_half_width,
+            geometry.well_rim_y_mm - geometry.water_plate_y_mm,
             facecolor=colors["plate"],
-            edgecolor=colors["ink"],
-            linewidth=1.0,
+            edgecolor="none",
             alpha=0.86,
+            zorder=2,
+        )
+    )
+
+    for centre_x in geometry.displayed_well_centres_mm:
+        well_index = int(round(centre_x / geometry.well_pitch_mm))
+        cavity = Polygon(
+            _well_cavity_polygon(centre_x, geometry),
+            closed=True,
+            facecolor=colors["air"],
+            edgecolor=colors["ink"],
+            linewidth=0.9,
+            alpha=1.0,
             zorder=3,
         )
+        cavity.set_gid(f"well-cavity-{well_index:+d}")
+        axis.add_patch(cavity)
+
+    # Outline the cropped local plate body without drawing a false line across
+    # the open well mouths.  In particular, do not draw vertical lines at the
+    # crop boundaries: paired diagonal break marks say explicitly that the
+    # physical plate continues beyond this local section.
+    axis.plot(
+        [-local_plate_half_width, local_plate_half_width],
+        [geometry.water_plate_y_mm, geometry.water_plate_y_mm],
+        color=colors["ink"],
+        linewidth=1.0,
+        zorder=4,
     )
-    left_wall = np.array(
-        [
-            [-x_limit, geometry.plate_fluid_y_mm],
-            [-geometry.well_bottom_radius_mm, geometry.plate_fluid_y_mm],
-            [-geometry.well_top_radius_mm, geometry.well_rim_y_mm],
-            [-x_limit, geometry.well_rim_y_mm],
-        ]
-    )
-    right_wall = left_wall.copy()
-    right_wall[:, 0] *= -1.0
-    for wall in (left_wall, right_wall):
-        axis.add_patch(
-            Polygon(
-                wall,
-                closed=True,
-                facecolor=colors["plate"],
-                edgecolor=colors["ink"],
-                linewidth=1.0,
-                alpha=0.74,
-                zorder=2,
+    top_edges = [
+        -local_plate_half_width,
+        *[
+            edge
+            for centre in geometry.displayed_well_centres_mm
+            for edge in (
+                centre - geometry.well_top_radius_mm,
+                centre + geometry.well_top_radius_mm,
             )
+        ],
+        local_plate_half_width,
+    ]
+    for left_edge, right_edge in zip(
+        top_edges[0::2],
+        top_edges[1::2],
+        strict=True,
+    ):
+        axis.plot(
+            [left_edge, right_edge],
+            [geometry.well_rim_y_mm, geometry.well_rim_y_mm],
+            color=colors["ink"],
+            linewidth=1.0,
+            zorder=4,
         )
+
+    crop_mark_y = geometry.plate_fluid_y_mm + 0.62 * (
+        geometry.well_rim_y_mm - geometry.plate_fluid_y_mm
+    )
+    crop_mark_height = min(
+        0.55,
+        0.10 * (geometry.well_rim_y_mm - geometry.plate_fluid_y_mm),
+    )
+    crop_mark_width = min(0.46, 0.14 * geometry.well_pitch_mm)
+    for side_name, sign in (("left", -1.0), ("right", 1.0)):
+        edge_x = sign * local_plate_half_width
+        for mark_index, vertical_offset in enumerate((-0.42, 0.42)):
+            line = axis.plot(
+                [edge_x - crop_mark_width, edge_x + crop_mark_width],
+                [
+                    crop_mark_y + vertical_offset - crop_mark_height,
+                    crop_mark_y + vertical_offset + crop_mark_height,
+                ],
+                color=colors["ink"],
+                linewidth=1.25,
+                solid_capstyle="round",
+                clip_on=False,
+                zorder=6,
+            )[0]
+            line.set_gid(f"plate-crop-break-{side_name}-{mark_index}")
 
     liquid_top = min(geometry.meniscus_y_mm, geometry.well_rim_y_mm)
     if liquid_top > geometry.plate_fluid_y_mm:
@@ -376,9 +500,10 @@ def acoustic_stack_schematic_figure(
                 facecolor=colors["liquid"],
                 edgecolor="none",
                 alpha=0.82,
-                zorder=1,
+                zorder=4,
             )
         )
+        axis.patches[-1].set_gid("active-well-liquid")
     if geometry.fill_exceeds_well_depth:
         axis.add_patch(
             Rectangle(
@@ -390,7 +515,7 @@ def acoustic_stack_schematic_figure(
                 hatch="///",
                 linewidth=0.8,
                 alpha=0.38,
-                zorder=1,
+                zorder=4,
             )
         )
 
@@ -640,7 +765,6 @@ def acoustic_stack_schematic_figure(
         label=f"fill {inputs.fluid_height_mm:.2f} mm",
         color=colors["liquid_line"],
     )
-
     axis.text(
         -x_limit + 0.42,
         geometry.water_plate_y_mm / 2.0,
@@ -667,18 +791,48 @@ def acoustic_stack_schematic_figure(
     )
     material_short = "PP" if plate.material == "polypropylene" else "COC"
     axis.text(
-        -x_limit + 0.4,
-        geometry.plate_fluid_y_mm
-        + min(2.0, 0.35 * plate.well_depth_mm),
-        f"{plate.id} · {plate.well_count}-WELL SOURCE PLATE\n"
-        f"{inputs.plate_thickness_mm:.2f} mm {material_short} BOTTOM",
+        -local_plate_half_width,
+        geometry.water_plate_y_mm - 0.62,
+        f"{plate.id} · {plate.well_count}-WELL {material_short} SOURCE PLATE\n"
+        f"{plate.well_pitch_mm:.2f} mm pitch · "
+        f"{plate.well_top_width_mm:.2f} → "
+        f"{plate.well_bottom_width_mm:.2f} mm well · "
+        f"{inputs.plate_thickness_mm:.2f} mm floor",
         color=colors["plate_dark"],
-        fontsize=6.9,
+        fontsize=6.8,
         fontweight="bold",
         ha="left",
-        va="bottom",
-        zorder=7,
+        va="top",
+        zorder=14,
+        bbox={
+            "boxstyle": "round,pad=0.25",
+            "facecolor": colors["paper"],
+            "edgecolor": colors["line"],
+            "alpha": 0.9,
+        },
     )
+    for centre_x in geometry.displayed_well_centres_mm:
+        if math.isclose(centre_x, 0.0):
+            label = "ACTIVE WELL"
+        elif math.isclose(abs(centre_x), geometry.well_pitch_mm):
+            label = "NEIGHBOR"
+        else:
+            continue
+        axis.text(
+            centre_x,
+            geometry.well_rim_y_mm - 0.24,
+            label,
+            color=(
+                colors["liquid_line"]
+                if math.isclose(centre_x, 0.0)
+                else colors["muted"]
+            ),
+            fontsize=5.8,
+            fontweight="bold",
+            ha="center",
+            va="top",
+            zorder=8,
+        )
     axis.text(
         0.0,
         geometry.meniscus_y_mm + 0.24,
@@ -689,20 +843,6 @@ def acoustic_stack_schematic_figure(
         ha="center",
         va="bottom",
         zorder=8,
-    )
-    axis.axhline(
-        geometry.water_plate_y_mm,
-        color=colors["ink"],
-        linewidth=0.75,
-        alpha=0.7,
-        zorder=6,
-    )
-    axis.axhline(
-        geometry.plate_fluid_y_mm,
-        color=colors["plate_dark"],
-        linewidth=0.7,
-        alpha=0.72,
-        zorder=6,
     )
     axis.axvline(
         0.0,

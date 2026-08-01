@@ -43,7 +43,12 @@ from .model import (
     FocusedCircularAperture,
     validate_focused_grid_support,
 )
-from .meniscus import MeniscusSweepResult, optimal_meniscus_intensity_sweep
+from .meniscus import (
+    MeniscusCavityMetric,
+    MeniscusSweepResult,
+    configured_meniscus_cavity_metric,
+    optimal_meniscus_intensity_sweep,
+)
 from .plate import (
     elastic_plate_scattering,
     elastic_plate_scattering_map,
@@ -88,6 +93,7 @@ __all__ = [
     "FocusedCircularAperture",
     "LABCYTE_PLATES",
     "LabcytePlate",
+    "MeniscusCavityMetric",
     "MeniscusSweepResult",
     "PulseEchoResult",
     "PulseResult",
@@ -98,6 +104,7 @@ __all__ = [
     "apply_reference_transfer",
     "asymmetric_gaussian_response",
     "capillary_pressure_scale_pa",
+    "configured_meniscus_cavity_metric",
     "elastic_plate_scattering",
     "elastic_plate_scattering_map",
     "elastic_plate_transfer_map",

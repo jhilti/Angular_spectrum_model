@@ -30,6 +30,12 @@ def test_first_load_shows_labware_and_estimated_stack_preview() -> None:
     assert len(_markdown_containing(app, "Acoustic stack cross-section")) == 1
     assert len(_markdown_containing(app, "Estimated ray focus")) == 1
     assert any("not the ASM solution" in item.value for item in app.caption)
+    assert any("local catalogue-scaled cutaway" in item.value for item in app.caption)
+    assert any("physical plate continues" in item.value for item in app.caption)
+    assert any(
+        item.label == "Fill-height sensitivity ± [mm]"
+        for item in app.number_input
+    )
     assert len(app.image) == 1
     assert len(app.tabs) == 0
 
@@ -48,7 +54,14 @@ def test_submit_replaces_preview_with_one_exact_asm_stack() -> None:
     assert len(_markdown_containing(app, "Acoustic stack cross-section")) == 1
     assert len(_markdown_containing(app, "Calculated angular-spectrum focus")) == 1
     assert not _markdown_containing(app, "Estimated ray focus")
+    assert len(_markdown_containing(app, "Cavity-return exposure")) == 1
+    assert len(_markdown_containing(app, "narrow-band separated-pass")) == 1
+    assert len(_markdown_containing(app, "acoustic overlap unverified")) == 1
     assert any("most recent simulation" in item.value for item in app.caption)
+    assert any(
+        "always frames all three interface reflections" in item.value
+        for item in app.caption
+    )
     assert [tab.label for tab in app.tabs] == [
         "Pulse response",
         "Focus optimization",

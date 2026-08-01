@@ -46,6 +46,17 @@ def test_stack_geometry_tracks_all_selected_dimensions() -> None:
     assert geometry.aperture_radius_mm == pytest.approx(4.5)
     assert geometry.focus_offset_from_meniscus_mm == pytest.approx(-0.4)
     assert geometry.well_bottom_radius_mm == pytest.approx(1.216)
+    assert geometry.well_pitch_mm == pytest.approx(4.5)
+    assert geometry.displayed_well_centres_mm == pytest.approx(
+        (-9.0, -4.5, 0.0, 4.5, 9.0)
+    )
+    assert (
+        max(abs(value) for value in geometry.displayed_well_centres_mm)
+        + geometry.well_top_radius_mm
+        >= geometry.aperture_radius_mm
+    )
+    assert geometry.top_interwell_web_mm == pytest.approx(4.5 - 2.432)
+    assert geometry.bottom_interwell_web_mm == pytest.approx(4.5 - 2.432)
 
 
 @pytest.mark.parametrize("asm_focus_mm", [None, 27.0])
@@ -76,6 +87,102 @@ def test_stack_geometry_flags_fill_above_catalogued_well_depth() -> None:
         plate=get_labcyte_plate("PP-0200"),
     )
     assert geometry.fill_exceeds_well_depth
+
+
+@pytest.mark.parametrize(
+    (
+        "plate_id",
+        "expected_pitch_mm",
+        "expected_top_width_mm",
+        "expected_bottom_width_mm",
+    ),
+    [
+        ("PP-0200", 4.5, 3.8, 3.6),
+        ("LP-0200", 4.5, 2.432, 2.432),
+        ("LP-0400", 2.25, 1.7, 1.4),
+    ],
+)
+def test_stack_figure_draws_repeated_catalogue_scaled_wells_and_crop_marks(
+    plate_id: str,
+    expected_pitch_mm: float,
+    expected_top_width_mm: float,
+    expected_bottom_width_mm: float,
+) -> None:
+    plate = get_labcyte_plate(plate_id)
+    inputs = SimulationInputs(
+        plate_part_number=plate.id,
+        plate_material_name=plate.material,
+        plate_thickness_mm=plate.bottom_thickness_mm,
+        plate_longitudinal_speed_m_s=plate.inferred_longitudinal_speed_m_s,
+    )
+    figure = acoustic_stack_schematic_figure(
+        inputs,
+        focus_from_aperture_mm=None,
+        plate=plate,
+    )
+    axis = figure.axes[0]
+    cavities = [
+        patch
+        for patch in axis.patches
+        if (patch.get_gid() or "").startswith("well-cavity-")
+    ]
+    liquid = [
+        patch
+        for patch in axis.patches
+        if patch.get_gid() == "active-well-liquid"
+    ]
+
+    expected_wells_per_side = max(
+        2,
+        math.ceil(
+            (
+                inputs.transducer_diameter_mm / 2.0
+                + expected_top_width_mm / 2.0
+            )
+            / expected_pitch_mm
+        ),
+    )
+    expected_indices = range(
+        -expected_wells_per_side,
+        expected_wells_per_side + 1,
+    )
+    assert {patch.get_gid() for patch in cavities} == {
+        f"well-cavity-{index:+d}" for index in expected_indices
+    }
+    assert len(liquid) == 1
+    cavity_centres = sorted(
+        float(patch.get_xy()[:-1, 0].mean()) for patch in cavities
+    )
+    assert cavity_centres == pytest.approx(
+        [index * expected_pitch_mm for index in expected_indices]
+    )
+    assert (
+        max(abs(value) for value in cavity_centres)
+        + expected_top_width_mm / 2.0
+        >= inputs.transducer_diameter_mm / 2.0
+    )
+    for patch in cavities:
+        vertices = patch.get_xy()[:-1]
+        bottom = vertices[vertices[:, 1] == vertices[:, 1].min(), 0]
+        top = vertices[vertices[:, 1] == vertices[:, 1].max(), 0]
+        assert max(bottom) - min(bottom) == pytest.approx(
+            expected_bottom_width_mm
+        )
+        assert max(top) - min(top) == pytest.approx(expected_top_width_mm)
+    assert any(
+        f"{expected_pitch_mm:.2f} mm pitch" in text.get_text()
+        for text in axis.texts
+    )
+    crop_marks = {
+        line.get_gid() for line in axis.lines if line.get_gid() is not None
+    }
+    assert {
+        "plate-crop-break-left-0",
+        "plate-crop-break-left-1",
+        "plate-crop-break-right-0",
+        "plate-crop-break-right-1",
+    }.issubset(crop_marks)
+    plt.close(figure)
 
 
 def test_refracted_ray_obeys_snell_law_and_kinks_at_interfaces() -> None:
