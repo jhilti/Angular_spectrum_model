@@ -73,16 +73,22 @@ three analyses in one interface:
 
 [![Live 2D acoustic stack showing the upward-facing transducer, Labcyte plate, liquid meniscus, and modeled focus](results/streamlit_acoustic_stack.png)](results/streamlit_acoustic_stack.png)
 
-The live cross-section follows the simulated water gap, plate-bottom thickness,
-well geometry, fill height, transducer aperture, and modeled focus. It is a
-scaled geometry drawing; the translucent cone illustrates convergence and is
-not a pressure-field heatmap.
+The cross-section is visible immediately on first load, before the FFT model is
+run. Its blue aperture-edge rays use geometric Snell refraction through water,
+the selected longitudinal plate branch, and the liquid; their kinks and hollow
+ray-focus marker are an orientation aid rather than a pressure-field heatmap.
+After simulation, a separate orange star marks the on-axis intensity maximum
+returned by the full angular-spectrum model. The difference between the two
+markers exposes effects that a single ray cannot represent, including
+diffraction, aperture weighting, elastic P/SV conversion, and plate resonances.
 
 - Broadband pulse-echo response with water–PP, PP–DMSO, and DMSO–air echoes
 - Qualitative overlay of an optional uploaded survey JSON file
 - Labcyte plate dropdown with `PP-0200` (0.78 mm polypropylene) as the default
-- Dynamic 2D view of the upward-facing transducer, plate well, planar
-  meniscus, and current focal point
+- Immediate 2D preview of the upward-facing transducer, plate well, planar
+  meniscus, refracted edge rays, and their estimated focus
+- Separate post-simulation ASM focus marker and numeric shift relative to the
+  Snell-ray estimate
 - Current focal position and a search for the water gap that maximizes
   the monochromatic on-axis pressure-squared focus metric at the meniscus
 

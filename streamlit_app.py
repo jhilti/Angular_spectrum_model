@@ -43,18 +43,19 @@ from angular_spectrum.labware import (
 from angular_spectrum.schematic import (
     acoustic_stack_geometry,
     acoustic_stack_schematic_figure,
+    refracted_ray_preview,
 )
 
 
 COLORS = {
-    "ink": "#10282f",
-    "blue": "#147d88",
-    "red": "#d46352",
-    "green": "#16846f",
-    "gold": "#d49a35",
-    "muted": "#687d82",
-    "grid": "#dce7e4",
-    "paper": "#fbfcfb",
+    "ink": "#1c2d57",
+    "blue": "#176c82",
+    "red": "#cf5f4b",
+    "green": "#007a4e",
+    "gold": "#e77925",
+    "muted": "#667085",
+    "grid": "#d6dbe2",
+    "paper": "#ffffff",
 }
 
 GEOMETRY_MANUAL = "Manual geometry"
@@ -101,47 +102,47 @@ st.set_page_config(
     page_title="Pulse Echo Focus Lab",
     page_icon="◉",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="auto",
 )
 st.markdown(
     """
     <style>
     :root {
         color-scheme: light;
-        --ink: #10282f;
-        --ink-soft: #40575d;
-        --teal: #147d88;
-        --teal-deep: #0e5963;
-        --mint: #dff0eb;
-        --paper: #fbfcfb;
+        --ink: #1c2d57;
+        --ink-soft: #475467;
+        --navy: #1c2d57;
+        --navy-deep: #13203f;
+        --accent: #00f091;
+        --accent-deep: #007a4e;
+        --accent-soft: #e8fff6;
+        --paper: #f7f8fa;
         --surface: #ffffff;
-        --surface-soft: #f1f6f4;
-        --line: #dce7e4;
-        --gold: #d49a35;
-        --shadow: 0 12px 35px rgba(16, 40, 47, .07);
+        --surface-soft: #f0f2f5;
+        --line: #d6dbe2;
+        --line-strong: #b8c0cc;
+        --shadow: 0 5px 18px rgba(16, 24, 40, .055);
     }
     html, body, [class*="css"] {
-        font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont,
-            "Segoe UI", sans-serif;
+        font-family: Outfit, "Avenir Next", Inter, ui-sans-serif, -apple-system,
+            BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
     .stApp {
-        background:
-            radial-gradient(circle at 88% 0%, rgba(20,125,136,.07), transparent 28rem),
-            linear-gradient(180deg, #fbfcfb 0%, #f5f8f7 100%);
+        background: var(--paper);
         color: var(--ink);
     }
     [data-testid="stHeader"] {
-        background: rgba(251, 252, 251, .82);
-        backdrop-filter: blur(14px);
-        border-bottom: 1px solid rgba(220, 231, 228, .72);
+        background: rgba(247, 248, 250, .94);
+        backdrop-filter: blur(10px);
+        border-bottom: 1px solid var(--line);
     }
     [data-testid="stMainBlockContainer"] {
-        max-width: 1320px;
-        padding-top: 2rem;
-        padding-bottom: 4rem;
+        max-width: 1280px;
+        padding-top: 2.4rem;
+        padding-bottom: 5rem;
     }
     [data-testid="stSidebar"] {
-        background: #f0f5f3;
+        background: #ffffff;
         border-right: 1px solid var(--line);
     }
     [data-testid="stSidebarContent"] {
@@ -157,46 +158,50 @@ st.markdown(
         margin: .85rem 0 1rem;
     }
     [data-testid="stSidebar"] label {
-        color: #314a50;
+        color: #344054;
         font-size: .82rem;
-        font-weight: 580;
+        font-weight: 600;
     }
     [data-testid="stSidebar"] [data-baseweb="input"] > div,
     [data-testid="stSidebar"] [data-baseweb="select"] > div {
-        background: rgba(255, 255, 255, .9);
-        border-color: #d2dfdc;
-        border-radius: .65rem;
+        background: #ffffff;
+        border-color: var(--line-strong);
+        border-radius: .3rem;
         min-height: 2.65rem;
     }
     [data-testid="stSidebar"] [data-baseweb="input"] > div:focus-within,
     [data-testid="stSidebar"] [data-baseweb="select"] > div:focus-within {
-        border-color: var(--teal);
-        box-shadow: 0 0 0 2px rgba(20, 125, 136, .12);
+        border-color: var(--accent);
+        box-shadow: 0 0 0 2px rgba(0, 240, 145, .18);
     }
     [data-testid="stFileUploaderDropzone"] {
-        background: rgba(255, 255, 255, .7);
-        border: 1px dashed #b8cbc6;
-        border-radius: .8rem;
+        background: #f8f9fb;
+        border: 1px dashed var(--line-strong);
+        border-radius: .35rem;
         padding: .7rem;
     }
     [data-testid="stFileUploaderDropzone"]:hover {
-        border-color: var(--teal);
-        background: rgba(255, 255, 255, .95);
+        border-color: var(--accent);
+        background: #ffffff;
     }
     [data-testid="stSidebar"] .stButton > button,
     [data-testid="stSidebar"] [data-testid="stFormSubmitButton"] > button {
         border: 0;
-        border-radius: .7rem;
+        border-radius: .3rem;
         min-height: 2.9rem;
-        font-weight: 680;
-        letter-spacing: -.01em;
-        box-shadow: 0 8px 20px rgba(14, 89, 99, .18);
+        background: var(--navy);
+        color: #ffffff;
+        font-weight: 700;
+        letter-spacing: .005em;
+        box-shadow: 0 3px 8px rgba(28, 45, 87, .18);
         transition: transform .15s ease, box-shadow .15s ease;
     }
     [data-testid="stSidebar"] .stButton > button:hover,
     [data-testid="stSidebar"] [data-testid="stFormSubmitButton"] > button:hover {
         transform: translateY(-1px);
-        box-shadow: 0 11px 24px rgba(14, 89, 99, .23);
+        background: var(--navy-deep);
+        color: #ffffff;
+        box-shadow: 0 5px 12px rgba(28, 45, 87, .22);
     }
     h1, h2, h3 {
         color: var(--ink);
@@ -206,37 +211,33 @@ st.markdown(
         color: var(--ink-soft);
     }
     a {
-        color: var(--teal-deep);
+        color: var(--accent-deep);
     }
     .app-hero {
         position: relative;
         overflow: hidden;
         display: grid;
         grid-template-columns: minmax(0, 1.55fr) minmax(250px, .75fr);
-        gap: 2.2rem;
+        gap: 3rem;
         align-items: center;
-        margin: .2rem 0 1.45rem;
-        padding: 2.2rem 2.35rem;
-        border: 1px solid rgba(255, 255, 255, .11);
-        border-radius: 1.35rem;
-        background:
-            radial-gradient(circle at 88% 22%, rgba(73, 190, 185, .22), transparent 18rem),
-            radial-gradient(circle at 70% 110%, rgba(212, 154, 53, .12), transparent 18rem),
-            linear-gradient(135deg, #0c2730 0%, #103d46 58%, #12515a 100%);
-        box-shadow: 0 22px 54px rgba(9, 35, 42, .18);
+        margin: 0 0 1.7rem;
+        padding: 2.8rem 3rem;
+        border: 1px solid var(--line);
+        border-top: 3px solid var(--accent);
+        border-radius: .4rem;
+        background: #ffffff;
+        box-shadow: var(--shadow);
     }
     .app-hero::after {
         content: "";
         position: absolute;
-        width: 25rem;
-        height: 25rem;
-        right: -12rem;
-        top: -15rem;
-        border: 1px solid rgba(255, 255, 255, .12);
-        border-radius: 50%;
-        box-shadow:
-            0 0 0 2.7rem rgba(255, 255, 255, .025),
-            0 0 0 5.4rem rgba(255, 255, 255, .02);
+        width: 12rem;
+        height: 1px;
+        right: -2.5rem;
+        top: 2.4rem;
+        background: var(--accent);
+        opacity: .22;
+        transform: rotate(-35deg);
         pointer-events: none;
     }
     .hero-copy,
@@ -246,16 +247,16 @@ st.markdown(
     }
     .eyebrow {
         margin-bottom: .7rem;
-        color: #8dd6cf;
-        font-size: .72rem;
-        font-weight: 750;
+        color: var(--accent-deep);
+        font-size: .8rem;
+        font-weight: 800;
         letter-spacing: .14em;
         text-transform: uppercase;
     }
     .app-hero h1 {
         max-width: 760px;
         margin: 0 0 .8rem;
-        color: #ffffff;
+        color: var(--navy);
         font-size: clamp(2.15rem, 4vw, 3.45rem);
         line-height: 1.02;
         letter-spacing: -.055em;
@@ -263,7 +264,7 @@ st.markdown(
     .hero-copy > p {
         max-width: 720px;
         margin: 0;
-        color: rgba(232, 245, 242, .78);
+        color: #667085;
         font-size: 1rem;
         line-height: 1.65;
     }
@@ -275,24 +276,23 @@ st.markdown(
     }
     .hero-tag {
         padding: .38rem .64rem;
-        border: 1px solid rgba(187, 231, 224, .18);
-        border-radius: 999px;
-        background: rgba(255, 255, 255, .07);
-        color: #d9efeb;
-        font-size: .75rem;
+        border: 1px solid var(--line);
+        border-radius: .25rem;
+        background: #f7f8fa;
+        color: #475467;
+        font-size: .8rem;
         font-weight: 600;
     }
     .layer-card {
-        padding: 1.15rem;
-        border: 1px solid rgba(220, 246, 241, .14);
-        border-radius: 1rem;
-        background: rgba(5, 27, 33, .32);
-        backdrop-filter: blur(6px);
+        padding: 1.25rem;
+        border: 1px solid var(--line);
+        border-radius: .35rem;
+        background: #f8f9fb;
     }
     .layer-card-label {
         margin-bottom: .75rem;
-        color: rgba(218, 241, 237, .62);
-        font-size: .65rem;
+        color: #667085;
+        font-size: .78rem;
         font-weight: 700;
         letter-spacing: .12em;
         text-transform: uppercase;
@@ -305,31 +305,31 @@ st.markdown(
     }
     .layer {
         padding: .55rem .35rem;
-        border-radius: .55rem;
-        color: white;
-        font-size: .72rem;
+        border-radius: .2rem;
+        color: var(--navy);
+        font-size: .8rem;
         font-weight: 700;
         text-align: center;
     }
-    .layer.water { background: rgba(61, 164, 183, .42); }
-    .layer.pp { background: rgba(212, 154, 53, .42); }
-    .layer.dmso { background: rgba(79, 174, 142, .42); }
-    .layer.air { background: rgba(255, 255, 255, .12); }
-    .layer-arrow { color: rgba(226, 245, 241, .45); font-size: .8rem; }
+    .layer.water { background: #dcecf2; }
+    .layer.pp { background: #eff0f0; }
+    .layer.dmso { background: #b2fade; }
+    .layer.air { background: #e9ecf0; }
+    .layer-arrow { color: #98a2b3; font-size: .8rem; }
     .hero-foot {
         display: flex;
         align-items: center;
         gap: .5rem;
         margin-top: .85rem;
-        color: rgba(220, 242, 238, .64);
-        font-size: .7rem;
+        color: #667085;
+        font-size: .78rem;
     }
     .pulse-dot {
         width: .45rem;
         height: .45rem;
-        border-radius: 50%;
-        background: #62c5bb;
-        box-shadow: 0 0 0 .28rem rgba(98, 197, 187, .12);
+        border-radius: .05rem;
+        background: var(--accent);
+        box-shadow: 0 0 0 .22rem rgba(0, 240, 145, .12);
     }
     .sidebar-brand {
         display: flex;
@@ -342,11 +342,11 @@ st.markdown(
         place-items: center;
         width: 2.45rem;
         height: 2.45rem;
-        border-radius: .78rem;
-        background: linear-gradient(145deg, #0f6c76, #15968d);
+        border-radius: .25rem;
+        background: var(--navy);
         color: white;
         font-size: 1rem;
-        box-shadow: 0 8px 18px rgba(20, 125, 136, .2);
+        box-shadow: none;
     }
     .sidebar-brand strong {
         display: block;
@@ -358,12 +358,12 @@ st.markdown(
         display: block;
         margin-top: .1rem;
         color: #6d8084;
-        font-size: .69rem;
+        font-size: .76rem;
     }
     .sidebar-kicker {
         margin: 1.15rem 0 .65rem;
-        color: #5d7479;
-        font-size: .66rem;
+        color: #667085;
+        font-size: .78rem;
         font-weight: 760;
         letter-spacing: .13em;
         text-transform: uppercase;
@@ -371,30 +371,30 @@ st.markdown(
     .survey-status {
         margin: -.1rem 0 .85rem;
         padding: .62rem .72rem;
-        border: 1px solid #cde1dc;
-        border-radius: .7rem;
-        background: rgba(223, 240, 235, .62);
-        color: #285c55;
-        font-size: .75rem;
+        border: 1px solid #b2fade;
+        border-radius: .3rem;
+        background: var(--accent-soft);
+        color: var(--accent-deep);
+        font-size: .8rem;
     }
     .section-head {
         display: flex;
         align-items: end;
         justify-content: space-between;
         gap: 1.5rem;
-        margin: 1.65rem 0 .85rem;
+        margin: 2.35rem 0 1rem;
     }
     .section-head .section-kicker {
         margin-bottom: .28rem;
-        color: var(--teal);
-        font-size: .68rem;
+        color: var(--accent-deep);
+        font-size: .78rem;
         font-weight: 760;
         letter-spacing: .12em;
         text-transform: uppercase;
     }
     .section-head h2 {
         margin: 0;
-        font-size: 1.35rem;
+        font-size: 1.45rem;
         letter-spacing: -.035em;
     }
     .section-head p {
@@ -408,20 +408,20 @@ st.markdown(
     .metric-grid {
         display: grid;
         grid-template-columns: repeat(4, minmax(0, 1fr));
-        gap: .8rem;
-        margin-bottom: .85rem;
+        gap: .9rem;
+        margin-bottom: 1.15rem;
     }
     .metric-card {
         min-height: 8.1rem;
-        padding: 1.05rem 1.05rem .95rem;
+        padding: 1.15rem 1.2rem 1rem;
         border: 1px solid var(--line);
-        border-radius: 1rem;
-        background: rgba(255, 255, 255, .9);
-        box-shadow: 0 8px 26px rgba(16, 40, 47, .045);
+        border-radius: .35rem;
+        background: #ffffff;
+        box-shadow: none;
     }
     .metric-label {
         color: #667b80;
-        font-size: .7rem;
+        font-size: .78rem;
         font-weight: 720;
         letter-spacing: .075em;
         text-transform: uppercase;
@@ -440,17 +440,18 @@ st.markdown(
         font-size: .72rem;
         line-height: 1.35;
     }
-    .metric-hint.positive { color: #167965; }
+    .metric-hint.positive { color: var(--accent-deep); }
     .model-note {
         display: flex;
         align-items: flex-start;
         gap: .75rem;
-        margin: .25rem 0 1rem;
-        padding: .9rem 1rem;
-        border: 1px solid #d9e8e4;
-        border-radius: .85rem;
-        background: rgba(239, 247, 244, .8);
-        color: #405a60;
+        margin: .35rem 0 1.2rem;
+        padding: 1rem 1.1rem;
+        border: 1px solid var(--line);
+        border-left: 3px solid var(--accent);
+        border-radius: .25rem;
+        background: #ffffff;
+        color: #475467;
         font-size: .82rem;
         line-height: 1.5;
     }
@@ -462,18 +463,19 @@ st.markdown(
         width: 1.35rem;
         height: 1.35rem;
         margin-top: .05rem;
-        border-radius: 50%;
-        background: #d4eae5;
-        color: #146b65;
+        border-radius: .2rem;
+        background: var(--accent-soft);
+        color: var(--accent-deep);
         font-size: .72rem;
         font-weight: 750;
     }
     .empty-state {
-        margin-top: 1rem;
-        padding: 2.25rem;
-        border: 1px dashed #c8d8d4;
-        border-radius: 1.1rem;
-        background: rgba(255, 255, 255, .7);
+        margin-top: 1.25rem;
+        padding: 1.3rem 1.5rem;
+        border: 1px solid var(--line);
+        border-left: 3px solid var(--accent);
+        border-radius: .3rem;
+        background: #ffffff;
         text-align: center;
     }
     .empty-mark {
@@ -482,9 +484,9 @@ st.markdown(
         width: 3rem;
         height: 3rem;
         margin: 0 auto .9rem;
-        border-radius: 1rem;
-        background: #e2f0ec;
-        color: var(--teal-deep);
+        border-radius: .25rem;
+        background: var(--accent-soft);
+        color: var(--accent-deep);
         font-size: 1.2rem;
     }
     .empty-state h3 { margin: 0 0 .35rem; }
@@ -494,24 +496,64 @@ st.markdown(
         color: #6a7d81;
         font-size: .86rem;
     }
+    .focus-state {
+        display: flex;
+        align-items: flex-start;
+        gap: .9rem;
+        margin: 0 0 1rem;
+        padding: .9rem 1rem;
+        border: 1px solid var(--line);
+        border-left: 3px solid var(--accent);
+        border-radius: .3rem;
+        background: #ffffff;
+    }
+    .focus-state.exact {
+        border-left-color: var(--navy);
+    }
+    .focus-state-tag {
+        flex: 0 0 auto;
+        padding: .24rem .38rem;
+        border-radius: .18rem;
+        background: var(--accent-soft);
+        color: var(--accent-deep);
+        font-size: .78rem;
+        font-weight: 800;
+        letter-spacing: .09em;
+        text-transform: uppercase;
+    }
+    .focus-state.exact .focus-state-tag {
+        background: #e9edf2;
+        color: var(--navy);
+    }
+    .focus-state strong {
+        display: block;
+        margin-bottom: .15rem;
+        color: var(--navy);
+        font-size: .83rem;
+    }
+    .focus-state span:last-child {
+        color: #667085;
+        font-size: .8rem;
+        line-height: 1.45;
+    }
     [data-baseweb="tab-list"] {
         gap: .3rem;
         padding: .3rem;
         border: 1px solid var(--line);
-        border-radius: .8rem;
-        background: #edf3f1;
+        border-radius: .3rem;
+        background: #eef0f3;
     }
     [data-baseweb="tab"] {
         height: 2.7rem;
         padding: 0 1rem;
-        border-radius: .58rem;
+        border-radius: .2rem;
         color: #5c7378;
         font-weight: 620;
     }
     [data-baseweb="tab"][aria-selected="true"] {
         background: white;
         color: var(--ink);
-        box-shadow: 0 3px 10px rgba(16, 40, 47, .07);
+        box-shadow: none;
     }
     [data-baseweb="tab-highlight"] {
         display: none;
@@ -522,34 +564,38 @@ st.markdown(
     [data-testid="stPyplot"] {
         overflow: hidden;
         border: 1px solid var(--line);
-        border-radius: 1rem;
+        border-radius: .35rem;
         background: var(--surface);
-        box-shadow: 0 8px 28px rgba(16, 40, 47, .045);
+        box-shadow: var(--shadow);
+    }
+    .st-key-acoustic_stack_visual [data-testid="stPyplot"] {
+        max-width: 760px;
+        margin-inline: auto;
     }
     [data-testid="stDataFrame"] {
         margin-top: .25rem;
     }
     [data-testid="stAlert"] {
-        border-radius: .85rem;
+        border-radius: .3rem;
         border-width: 1px;
     }
     [data-testid="stDownloadButton"] > button {
         min-height: 2.8rem;
         border-color: #cbdad6;
-        border-radius: .7rem;
+        border-radius: .3rem;
         background: white;
         color: #23474e;
         font-weight: 620;
     }
     [data-testid="stDownloadButton"] > button:hover {
-        border-color: var(--teal);
-        color: var(--teal-deep);
-        background: #f6fbf9;
+        border-color: var(--accent);
+        color: var(--accent-deep);
+        background: var(--accent-soft);
     }
     [data-testid="stExpander"] {
         border-color: var(--line);
-        border-radius: .8rem;
-        background: rgba(255, 255, 255, .65);
+        border-radius: .3rem;
+        background: #ffffff;
     }
     .footer-note {
         margin-top: 2rem;
@@ -560,18 +606,27 @@ st.markdown(
         text-align: center;
     }
     @media (max-width: 900px) {
-        .app-hero { grid-template-columns: 1fr; padding: 1.75rem; }
+        [data-testid="stMainBlockContainer"] {
+            padding-left: 1.25rem;
+            padding-right: 1.25rem;
+        }
+        .app-hero { grid-template-columns: 1fr; padding: 2rem; }
         .layer-card { display: none; }
         .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         .section-head { display: block; }
         .section-head p { margin-top: .35rem; text-align: left; }
     }
     @media (max-width: 540px) {
-        [data-testid="stMainBlockContainer"] { padding-top: 1rem; }
-        .app-hero { padding: 1.35rem; border-radius: 1rem; }
+        [data-testid="stMainBlockContainer"] {
+            padding: 1rem .85rem 3rem;
+        }
+        .app-hero { padding: 1.45rem; border-radius: .35rem; }
         .app-hero h1 { font-size: 2rem; }
         .metric-grid { grid-template-columns: 1fr; }
         .metric-card { min-height: auto; }
+        .focus-state { display: block; }
+        .focus-state-tag { display: inline-block; margin-bottom: .55rem; }
+        [data-baseweb="tab"] { padding: 0 .55rem; font-size: .75rem; }
     }
     </style>
     """,
@@ -1571,28 +1626,29 @@ with st.sidebar:
             width="stretch",
         )
 
+manual_inputs = SimulationInputs(
+    dmso_volume_percent=dmso_percent,
+    temperature_c=temperature_c,
+    water_path_mm=water_path_mm,
+    plate_thickness_mm=plate_thickness_mm,
+    fluid_height_mm=fluid_height_mm,
+    excitation_frequency_mhz=excitation_frequency_mhz,
+    excitation_cycles=excitation_cycles,
+    transducer_diameter_mm=transducer_diameter_mm,
+    transducer_focal_length_mm=transducer_focal_length_mm,
+    plate_part_number=plate_record.id,
+    plate_material_name=plate_material_name,
+    plate_longitudinal_speed_m_s=plate_longitudinal_speed_m_s,
+    plate_density_kg_m3=plate_density_kg_m3,
+    plate_poisson_ratio=plate_poisson_ratio,
+    pp_longitudinal_attenuation_db_per_m=pp_alpha_l_db_m,
+    pp_shear_attenuation_db_per_m=pp_alpha_s_db_m,
+    fluid_attenuation_db_per_m=fluid_alpha_db_m,
+    attenuation_power=attenuation_power,
+    numerical_preset=numerical_preset,
+)
+
 if submitted:
-    manual_inputs = SimulationInputs(
-        dmso_volume_percent=dmso_percent,
-        temperature_c=temperature_c,
-        water_path_mm=water_path_mm,
-        plate_thickness_mm=plate_thickness_mm,
-        fluid_height_mm=fluid_height_mm,
-        excitation_frequency_mhz=excitation_frequency_mhz,
-        excitation_cycles=excitation_cycles,
-        transducer_diameter_mm=transducer_diameter_mm,
-        transducer_focal_length_mm=transducer_focal_length_mm,
-        plate_part_number=plate_record.id,
-        plate_material_name=plate_material_name,
-        plate_longitudinal_speed_m_s=plate_longitudinal_speed_m_s,
-        plate_density_kg_m3=plate_density_kg_m3,
-        plate_poisson_ratio=plate_poisson_ratio,
-        pp_longitudinal_attenuation_db_per_m=pp_alpha_l_db_m,
-        pp_shear_attenuation_db_per_m=pp_alpha_s_db_m,
-        fluid_attenuation_db_per_m=fluid_alpha_db_m,
-        attenuation_power=attenuation_power,
-        numerical_preset=numerical_preset,
-    )
     try:
         used_inputs, geometry_source = _used_geometry(
             manual_inputs,
@@ -1616,15 +1672,172 @@ geometry_source = st.session_state.get(
 )
 
 if result is None:
+    try:
+        stack_inputs, stack_geometry_source = _used_geometry(
+            manual_inputs,
+            survey,
+            geometry_mode,
+        )
+    except (ValueError, FloatingPointError) as exc:
+        stack_inputs = manual_inputs
+        stack_geometry_source = "Manual geometry fields (survey preview unavailable)"
+        st.warning(
+            "The survey-derived geometry could not be previewed, so the "
+            f"manual fields are shown instead: {exc}"
+        )
+    stack_plate = plate_record
+    stack_asm_focus_mm: float | None = None
+    stack_geometry_focus_mm = stack_inputs.transducer_focal_length_mm
+    focus_state_class = "preview"
+    focus_state_tag = "Preview"
+    focus_state_title = "Estimated ray focus"
+    focus_state_copy = (
+        "Geometry follows the current inputs. The ray focus is a "
+        "geometric-acoustics estimate through the material stack; no "
+        "angular-spectrum result has been calculated yet."
+    )
+    section_kicker = "Geometry preview"
+    section_copy = (
+        "Upward-facing transducer, selected well bottom, liquid layer, "
+        "meniscus, and an estimated refracted focus."
+    )
+    stack_caption = (
+        "Preview from the current sidebar values. The ray focus is estimated "
+        "from the nominal transducer geometry and material sound speeds; it "
+        "is not the ASM solution. The meniscus is planar in the physics model."
+    )
+else:
+    stack_inputs = result.inputs
+    stack_plate = get_labcyte_plate(result.inputs.plate_part_number)
+    stack_geometry_source = geometry_source
+    stack_asm_focus_mm = result.focus_from_aperture_mm
+    stack_geometry_focus_mm = result.focus_from_aperture_mm
+    focus_state_class = "exact"
+    focus_state_tag = "ASM result"
+    focus_state_title = "Calculated angular-spectrum focus"
+    focus_state_copy = (
+        "This cross-section uses the most recently submitted inputs and the "
+        "focus returned by the full angular-spectrum calculation."
+    )
+    section_kicker = "Solved geometry"
+    section_copy = (
+        "Upward-facing transducer, selected well bottom, liquid layer, "
+        "meniscus, refracted rays, and the calculated ASM focus."
+    )
+    stack_caption = (
+        "Axial distances and well dimensions use the most recent simulation. "
+        "The meniscus is planar in the physics model; the ray bundle explains "
+        "refraction and is not a calculated pressure map."
+    )
+
+stack_ray = refracted_ray_preview(stack_inputs)
+if stack_ray.ray_focus_y_mm is None:
+    if stack_ray.critical_interface is None:
+        ray_focus_summary = (
+            "No propagating longitudinal edge-ray focus is available"
+        )
+    else:
+        ray_focus_summary = (
+            "The longitudinal edge ray reaches its critical angle at "
+            f"{stack_ray.critical_interface}"
+        )
+else:
+    ray_focus_summary = (
+        f"Snell estimate {stack_ray.ray_focus_y_mm:.2f} mm from the aperture "
+        f"({stack_ray.ray_focus_medium})"
+    )
+
+if result is None:
+    if stack_ray.ray_focus_y_mm is not None:
+        focus_state_title = (
+            f"Estimated ray focus · {stack_ray.ray_focus_y_mm:.2f} mm"
+        )
+    focus_state_copy += f" {ray_focus_summary}."
+else:
+    focus_state_title = (
+        f"Calculated angular-spectrum focus · "
+        f"{result.focus_from_aperture_mm:.2f} mm"
+    )
+    if stack_ray.ray_focus_y_mm is not None:
+        focus_delta_mm = (
+            result.focus_from_aperture_mm - stack_ray.ray_focus_y_mm
+        )
+        focus_state_copy += (
+            f" {ray_focus_summary}; the ASM maximum is shifted by "
+            f"{focus_delta_mm:+.2f} mm."
+        )
+    else:
+        focus_state_copy += f" {ray_focus_summary}."
+
+if result is not None and plate_record.id != stack_plate.id:
+    st.info(
+        f"The visible result still uses {stack_plate.id}. Select "
+        "**Simulate and optimize focus** to apply the new plate choice."
+    )
+
+stack_geometry = acoustic_stack_geometry(
+    stack_inputs,
+    stack_geometry_focus_mm,
+    stack_plate,
+)
+if stack_plate.material == "coc":
+    st.warning(
+        "This view uses a COC plate. Its bottom geometry and longitudinal "
+        "speed come from the labware catalogue; density and Poisson ratio are "
+        "editable modeling assumptions, and loss still defaults to zero."
+    )
+if stack_geometry.fill_exceeds_well_depth:
+    st.warning(
+        f"The entered {stack_inputs.fluid_height_mm:.2f} mm fill height "
+        f"exceeds the catalogue well depth of {stack_plate.well_depth_mm:.2f} "
+        "mm. The hatched region in the schematic indicates this geometrically "
+        "inconsistent input."
+    )
+st.markdown(
+    f"""
+    <div class="section-head">
+        <div>
+            <div class="section-kicker">{section_kicker}</div>
+            <h2>Acoustic stack cross-section</h2>
+        </div>
+        <p>{section_copy}</p>
+    </div>
+    <div class="focus-state {focus_state_class}">
+        <span class="focus-state-tag">{focus_state_tag}</span>
+        <div>
+            <strong>{focus_state_title}</strong>
+            <span>{focus_state_copy} Geometry source: {stack_geometry_source}.</span>
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+stack_plot = acoustic_stack_schematic_figure(
+    stack_inputs,
+    stack_asm_focus_mm,
+    stack_plate,
+)
+with st.container(key="acoustic_stack_visual"):
+    st.pyplot(stack_plot, width="stretch")
+plt.close(stack_plot)
+st.caption(stack_caption)
+st.markdown(
+    f"Labware geometry: [{stack_plate.id} catalogue record ↗]"
+    f"({stack_plate.source_url}) · offline snapshot bundled for reproducible "
+    "simulation."
+)
+
+if result is None:
     st.markdown(
         """
         <div class="empty-state">
             <div class="empty-mark">↗</div>
-            <h3>Ready for your first simulation</h3>
+            <h3>Preview ready</h3>
             <p>
-                Review the parameters in the left panel, then select
-                <strong>Simulate and optimize focus</strong> to calculate the
-                echo response and focal alignment.
+                Review the geometry above, then select
+                <strong>Simulate and optimize focus</strong>. The preview will
+                be replaced by the calculated ASM focus, pulse response, and
+                water-gap optimization.
             </p>
         </div>
         """,
@@ -1637,12 +1850,6 @@ shown_signals = display_signals(
     result_survey,
     bool(st.session_state.get("use_reference_calibration", False)),
 )
-result_plate = get_labcyte_plate(result.inputs.plate_part_number)
-if plate_record.id != result_plate.id:
-    st.info(
-        f"The visible result still uses {result_plate.id}. Select "
-        "**Simulate and optimize focus** to apply the new plate choice."
-    )
 if shown_signals.calibration_error is not None:
     st.warning(
         "The water–plate reference correction could not be applied: "
@@ -1764,56 +1971,6 @@ if shown_signals.reference_calibration is not None:
         f"to {calibration.maximum_frequency_hz / 1e6:.1f} MHz. Geometry, "
         "focus, and absolute gain are unchanged."
     )
-
-stack_geometry = acoustic_stack_geometry(
-    result.inputs,
-    result.focus_from_aperture_mm,
-    result_plate,
-)
-if result_plate.material == "coc":
-    st.warning(
-        "This result uses a COC plate. Its bottom geometry and longitudinal "
-        "speed come from the labware catalogue; density and Poisson ratio are "
-        "editable modeling assumptions, and loss still defaults to zero."
-    )
-if stack_geometry.fill_exceeds_well_depth:
-    st.warning(
-        f"The entered {result.inputs.fluid_height_mm:.2f} mm fill height "
-        f"exceeds the catalogue well depth of {result_plate.well_depth_mm:.2f} "
-        "mm. The hatched region in the schematic indicates this geometrically "
-        "inconsistent input."
-    )
-st.markdown(
-    """
-    <div class="section-head">
-        <div>
-            <div class="section-kicker">Live geometry</div>
-            <h2>Acoustic stack cross-section</h2>
-        </div>
-        <p>
-            Upward-facing transducer, selected well bottom, liquid layer,
-            meniscus, and current modeled focus.
-        </p>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-stack_plot = acoustic_stack_schematic_figure(
-    result.inputs,
-    result.focus_from_aperture_mm,
-    result_plate,
-)
-st.pyplot(stack_plot, width="stretch")
-st.caption(
-    "Axial distances and well dimensions are scaled from the current result. "
-    "The meniscus is planar in the physics model; the translucent cone is an "
-    "illustration of convergence, not a calculated pressure map."
-)
-st.markdown(
-    f"Labware geometry: [{result_plate.id} catalogue record ↗]"
-    f"({result_plate.source_url}) · offline snapshot bundled for reproducible "
-    "simulation."
-)
 
 pulse_tab, focus_tab, data_tab = st.tabs(
     ["Pulse response", "Focus optimization", "Spectrum & exports"]
