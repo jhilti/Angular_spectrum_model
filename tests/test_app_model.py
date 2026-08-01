@@ -25,6 +25,13 @@ class InteractiveAppModelTests(unittest.TestCase):
         ).validate()
         with self.assertRaisesRegex(ValueError, "fluid attenuation"):
             SimulationInputs(fluid_attenuation_db_per_m=-1.0).validate()
+        with self.assertRaisesRegex(ValueError, "fill height uncertainty"):
+            SimulationInputs(fill_height_uncertainty_mm=-0.01).validate()
+        with self.assertRaisesRegex(ValueError, "smaller than fluid height"):
+            SimulationInputs(
+                fluid_height_mm=0.1,
+                fill_height_uncertainty_mm=0.1,
+            ).validate()
 
     def test_interface_arrivals_are_strictly_ordered(self) -> None:
         inputs = SimulationInputs()
@@ -195,6 +202,15 @@ class InteractiveAppModelTests(unittest.TestCase):
         self.assertGreater(result.optimal_meniscus_intensity_fwhm_mm, 0.0)
         self.assertFalse(result.optimal_water_path_boundary_limited)
         self.assertGreater(result.simulated_frequency_bin_count, 0)
+        self.assertEqual(
+            result.meniscus_cavity.electrical_overlap_regime,
+            "electrical-burst-shorter",
+        )
+        self.assertGreaterEqual(
+            result.meniscus_cavity.narrowband_separated_pass_exposure_gain,
+            1.0,
+        )
+        self.assertGreater(result.meniscus_cavity.coherent_power_gain, 0.0)
 
 
 if __name__ == "__main__":

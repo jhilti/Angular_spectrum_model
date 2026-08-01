@@ -83,14 +83,21 @@ markers exposes effects that a single ray cannot represent, including
 diffraction, aperture weighting, elastic P/SV conversion, and plate resonances.
 
 - Broadband pulse-echo response with water–PP, PP–DMSO, and DMSO–air echoes
+- Pulse-response time window automatically framed around all three interface
+  reflections while retaining excitation start as the absolute time origin
 - Qualitative overlay of an optional uploaded survey JSON file
 - Labcyte plate dropdown with `PP-0200` (0.78 mm polypropylene) as the default
 - Immediate 2D preview of the upward-facing transducer, plate well, planar
-  meniscus, refracted edge rays, and their estimated focus
+  meniscus, refracted edge rays, and their estimated focus; the local plate
+  cutaway repeats pitch-accurate neighbouring wells across the transducer and
+  uses crop marks to show that the physical plate continues beyond the view
 - Separate post-simulation ASM focus marker and numeric shift relative to the
   Snell-ray estimate
 - Current focal position and a search for the water gap that maximizes
   the monochromatic on-axis pressure-squared focus metric at the meniscus
+- Separate reflection-exposure estimate at the meniscus: a single-frequency
+  separated-pass proxy and a phase-sensitive coherent CW limit, both relative
+  to the first forward pass and explicitly not broadband pulse energy
 
 The bundled selector is an offline snapshot of the resolved
 [UK Robotics labware catalogue](https://labware.ukrobotics.app/SBSPlatesFlat.json)
@@ -131,6 +138,16 @@ deliberately keeping cavity interference separate from the focus metric.
 Water and DMSO properties both
 follow the selected temperature. Invalid grid/path combinations are rejected
 instead of silently clipping the required aperture spectrum.
+
+The reflection-exposure card does not claim absolute energy at the free
+surface. It sums forward pass powers at the selected centre frequency and
+compares them with the first pass. This is a narrow-band separated-pass proxy,
+not the spectrally integrated fluence of the finite pulse. It also reports the
+single-frequency coherent limit separately, because that value can increase or
+decrease with fill height through constructive or destructive interference.
+Electrical burst length is compared with the cavity round trip, but acoustic
+overlap remains unverified without a causal ring-down calibration. Neither
+ratio is net transmission into air or a droplet-ejection efficiency.
 
 The default calculation creates the following files in `results/`:
 

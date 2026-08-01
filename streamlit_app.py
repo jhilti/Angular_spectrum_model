@@ -40,6 +40,10 @@ from angular_spectrum.labware import (
     labcyte_plate_choice_ids,
     labcyte_plate_choice_label,
 )
+from angular_spectrum.plotting import (
+    interface_reflection_window_us,
+    modeled_echo_right_padding_us,
+)
 from angular_spectrum.schematic import (
     acoustic_stack_geometry,
     acoustic_stack_schematic_figure,
@@ -445,6 +449,22 @@ st.markdown(
         line-height: 1.35;
     }
     .metric-hint.positive { color: var(--accent-deep); }
+    .metric-hint.negative { color: #b54708; }
+    .metric-card.reflection-card {
+        grid-column: 1 / -1;
+        min-height: auto;
+        display: grid;
+        grid-template-columns: minmax(220px, .72fr) minmax(0, 1.75fr);
+        gap: 1.5rem;
+        align-items: center;
+        border-left: 3px solid var(--accent);
+    }
+    .reflection-card-copy {
+        color: #5f7378;
+        font-size: .78rem;
+        line-height: 1.55;
+    }
+    .reflection-card-copy strong { color: var(--ink); }
     .model-note {
         display: flex;
         align-items: flex-start;
@@ -617,6 +637,7 @@ st.markdown(
         .app-hero { grid-template-columns: 1fr; padding: 2rem; }
         .layer-card { display: none; }
         .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .metric-card.reflection-card { grid-template-columns: 1fr; gap: .65rem; }
         .section-head { display: block; }
         .section-head p { margin-top: .35rem; text-align: left; }
     }
@@ -978,24 +999,30 @@ def pulse_figure(
         frameon=False,
     )
 
-    measured_last_arrival = 0.0
-    if survey is not None:
-        measured_last_arrival = max(
-            _measured_arrivals_since_excitation_us(survey).values()
-        )
-    last_arrival = max(
-        max(arrivals_since_excitation.values()),
-        measured_last_arrival,
+    measured_arrivals = (
+        None
+        if survey is None
+        else _measured_arrivals_since_excitation_us(survey)
     )
-    first_arrival = min(arrivals_since_excitation.values())
-    if survey is not None:
-        first_arrival = min(
-            first_arrival,
-            min(_measured_arrivals_since_excitation_us(survey).values()),
-        )
-    axes[0].set_xlim(0.0, last_arrival + 2.0)
+    last_simulated_arrival_us = max(arrivals_since_excitation.values())
+    drive_duration_us = (
+        result.inputs.excitation_cycles
+        / result.inputs.excitation_frequency_mhz
+    )
+    right_padding_us = modeled_echo_right_padding_us(
+        result.time_since_excitation_us,
+        analytic_envelope(signals.surface),
+        last_arrival_us=last_simulated_arrival_us,
+        drive_duration_us=drive_duration_us,
+    )
+    echo_xlim = interface_reflection_window_us(
+        arrivals_since_excitation,
+        measured_arrivals,
+        minimum_right_padding_us=right_padding_us,
+    )
+    axes[0].set_xlim(*echo_xlim)
     axes[0].set_xlabel("Time since excitation start [µs]")
-    axes[1].set_xlim(max(0.0, first_arrival - 0.55), last_arrival + 2.0)
+    axes[1].set_xlim(*echo_xlim)
     for axis in axes:
         _style_axis(axis)
     return figure
@@ -1230,6 +1257,56 @@ def result_summary(
                 "at the planar meniscus"
             ),
         },
+        "meniscus_reflection_exposure": {
+            "reference": "first forward pass across the meniscus plane",
+            "frequency_hz": result.meniscus_cavity.frequency_hz,
+            "electrical_overlap_regime": (
+                result.meniscus_cavity.electrical_overlap_regime
+            ),
+            "electrical_burst_duration_us": (
+                result.meniscus_cavity.electrical_burst_duration_s * 1e6
+            ),
+            "cavity_round_trip_us": (
+                result.meniscus_cavity.cavity_round_trip_s * 1e6
+            ),
+            "narrowband_separated_pass_exposure_gain": (
+                result.meniscus_cavity.narrowband_separated_pass_exposure_gain
+            ),
+            "narrowband_separated_pass_percent_change": (
+                result.meniscus_cavity.narrowband_separated_pass_percent_change
+            ),
+            "coherent_cw_power_gain": (
+                result.meniscus_cavity.coherent_power_gain
+            ),
+            "coherent_cw_percent_change": (
+                result.meniscus_cavity.coherent_percent_change
+            ),
+            "fill_height_sensitivity_plus_minus_mm": (
+                result.meniscus_cavity.height_uncertainty_m * 1e3
+            ),
+            "coherent_cw_gain_sensitivity_range": [
+                result.meniscus_cavity.coherent_gain_height_min,
+                result.meniscus_cavity.coherent_gain_height_max,
+            ],
+            "narrowband_separated_gain_sensitivity_range": [
+                result.meniscus_cavity.narrowband_gain_height_min,
+                result.meniscus_cavity.narrowband_gain_height_max,
+            ],
+            "cavity_orders_retained": (
+                result.meniscus_cavity.cavity_orders_retained
+            ),
+            "cavity_series_converged": (
+                result.meniscus_cavity.cavity_series_converged
+            ),
+            "sensitivity_series_converged": (
+                result.meniscus_cavity.sensitivity_series_converged
+            ),
+            "cavity_relative_tolerance": (
+                result.meniscus_cavity.cavity_relative_tolerance
+            ),
+            "absolute_energy_calibrated": False,
+            "limitations": list(result.meniscus_cavity.limitations),
+        },
         "survey": {
             "used": survey is not None,
             "date_time": None if survey is None else survey.date_time,
@@ -1287,6 +1364,10 @@ def result_summary(
             "uploaded survey data are parsed in memory and are not committed",
             "DMSO concentration and temperature are user hypotheses",
             "the focus optimization excludes DMSO-air cavity interference",
+            (
+                "the separate meniscus reflection metric is a relative "
+                "forward-exposure proxy, not net energy into air"
+            ),
             (
                 "the transducer certificate magnitude is represented by a "
                 "zero-phase asymmetric Gaussian; small symmetric pre-ringing "
@@ -1558,11 +1639,27 @@ with st.sidebar:
             value=25.4,
             step=0.1,
         )
-        with st.expander("Advanced plate acoustics & loss", expanded=False):
+        with st.expander(
+            "Advanced acoustics, loss & uncertainty",
+            expanded=False,
+        ):
             st.caption(
                 "Catalogue sound speed is inferred from its raw unit field. "
                 "Density and Poisson ratio are not catalogue measurements. "
                 "Leave losses at zero until measured or independently fitted."
+            )
+            fill_height_uncertainty_mm = st.number_input(
+                "Fill-height sensitivity ± [mm]",
+                min_value=0.0,
+                max_value=float(max(0.001, fluid_height_mm - 0.001)),
+                value=float(min(0.05, fluid_height_mm - 0.001)),
+                step=0.01,
+                help=(
+                    "Deterministic range used to show how the coherent 10 MHz "
+                    "cavity limit changes around the entered fill height. It "
+                    "is not a statistical uncertainty unless it matches your "
+                    "measurement uncertainty."
+                ),
             )
             plate_longitudinal_speed_m_s = st.number_input(
                 "Plate longitudinal speed [m/s]",
@@ -1649,6 +1746,7 @@ manual_inputs = SimulationInputs(
     pp_shear_attenuation_db_per_m=pp_alpha_s_db_m,
     fluid_attenuation_db_per_m=fluid_alpha_db_m,
     attenuation_power=attenuation_power,
+    fill_height_uncertainty_mm=fill_height_uncertainty_mm,
     numerical_preset=numerical_preset,
 )
 
@@ -1824,7 +1922,14 @@ stack_plot = acoustic_stack_schematic_figure(
 with st.container(key="acoustic_stack_visual"):
     st.pyplot(stack_plot, width="stretch")
 plt.close(stack_plot)
-st.caption(stack_caption)
+st.caption(
+    stack_caption
+    + " The active well and its pitch-repeated neighbours form a local "
+    "catalogue-scaled "
+    f"cutaway at {stack_plate.well_pitch_mm:g} mm pitch; well widths, depth, "
+    "and the entered acoustic floor thickness are drawn to scale. Break "
+    "marks indicate that the physical plate continues beyond the view."
+)
 st.markdown(
     f"Labware geometry: [{stack_plate.id} catalogue record ↗]"
     f"({stack_plate.source_url}) · offline snapshot bundled for reproducible "
@@ -1888,6 +1993,45 @@ if result_survey is not None:
 offset = result.focus_offset_from_meniscus_mm
 offset_label = "below" if offset < 0.0 else "above"
 water_gap_delta = result.optimal_water_path_mm - result.inputs.water_path_mm
+cavity = result.meniscus_cavity
+coherent_min_percent = 100.0 * (cavity.coherent_gain_height_min - 1.0)
+coherent_max_percent = 100.0 * (cavity.coherent_gain_height_max - 1.0)
+narrowband_percent = cavity.narrowband_separated_pass_percent_change
+if cavity.electrical_overlap_regime == "electrical-burst-long":
+    reflection_percent = cavity.coherent_percent_change
+    reflection_value = f"{reflection_percent:+.1f}% CW limit"
+    reflection_basis = (
+        f"{result.inputs.excitation_frequency_mhz:g} MHz coherent forward power"
+    )
+    reflection_regime = "electrical burst spans at least five round trips"
+    reflection_hint_class = (
+        "positive" if reflection_percent >= 0.0 else "negative"
+    )
+elif cavity.electrical_overlap_regime == "electrical-burst-intermediate":
+    reflection_value = "No single %"
+    reflection_basis = "time-domain overlap unresolved"
+    reflection_regime = (
+        f"{narrowband_percent:+.1f}% separated-pass proxy · "
+        f"{cavity.coherent_percent_change:+.1f}% CW limit"
+    )
+    reflection_hint_class = ""
+else:
+    reflection_value = f"{narrowband_percent:+.1f}% proxy"
+    reflection_basis = (
+        f"{result.inputs.excitation_frequency_mhz:g} MHz narrow-band "
+        "separated-pass exposure"
+    )
+    reflection_regime = (
+        "electrical burst is shorter; acoustic overlap unverified"
+    )
+    reflection_hint_class = "positive"
+if cavity.height_uncertainty_m > 0.0:
+    coherent_sensitivity_copy = (
+        f"over ±{cavity.height_uncertainty_m * 1e3:.2f} mm: "
+        f"{coherent_min_percent:+.1f}% to {coherent_max_percent:+.1f}%"
+    )
+else:
+    coherent_sensitivity_copy = "at the entered nominal height"
 st.markdown(
     """
     <div class="section-head">
@@ -1896,8 +2040,8 @@ st.markdown(
             <h2>Focal alignment at a glance</h2>
         </div>
         <p>
-            Results use the selected acoustic properties and a single-pass
-            meniscus focus criterion.
+            Focus results use a single-pass criterion. Cavity returns are
+            reported separately as single-frequency proxies and limits.
         </p>
     </div>
     """,
@@ -1936,6 +2080,28 @@ st.markdown(
                 {result.inputs.temperature_c:.1f} °C
             </div>
         </div>
+        <div class="metric-card reflection-card">
+            <div>
+                <div class="metric-label">Cavity-return exposure</div>
+                <div class="metric-value">{reflection_value}</div>
+                <div class="metric-hint {reflection_hint_class}">
+                    {reflection_basis} · {reflection_regime}
+                </div>
+            </div>
+            <div class="reflection-card-copy">
+                At the nominal height, the <strong>single-frequency
+                separated-pass proxy is {narrowband_percent:+.1f}%</strong>
+                and the coherent CW limit is
+                <strong>{cavity.coherent_percent_change:+.1f}%</strong>;
+                {coherent_sensitivity_copy}. These are not the spectrally
+                integrated fluence of the configured finite pulse. Cavity round trip
+                {cavity.cavity_round_trip_s * 1e6:.3f} µs versus
+                {cavity.electrical_burst_duration_s * 1e6:.3f} µs electrical
+                burst; causal acoustic ring-down is uncalibrated. The values
+                describe repeated forward crossings, not net energy into air
+                or ejection efficiency.
+            </div>
+        </div>
     </div>
     """,
     unsafe_allow_html=True,
@@ -1953,6 +2119,16 @@ if result.optimal_water_path_boundary_limited:
         "resolved optimum. Use a larger-window custom calculation before "
         "changing the hardware geometry."
     )
+if not cavity.cavity_series_converged:
+    st.warning(
+        "The nominal meniscus cavity series did not reach its convergence "
+        "criterion. Treat the reflection percentage as unresolved."
+    )
+if not cavity.sensitivity_series_converged:
+    st.warning(
+        "At least one fill-height sensitivity point did not converge. The "
+        "reported coherent range may be incomplete."
+    )
 st.markdown(
     f"""
     <div class="model-note">
@@ -1960,8 +2136,8 @@ st.markdown(
         single-pass focus metric by
         <strong>{result.optimal_water_path_gain_db:.2f} dB</strong>.
         This is monochromatic, uncalibrated |p|²—not an ADE efficiency or
-        ejection-threshold prediction. DMSO–air cavity interference is kept
-        separate.
+        ejection-threshold prediction. DMSO–air cavity returns are excluded
+        from the focus optimum and reported separately above.
     </div>
     """,
     unsafe_allow_html=True,
@@ -1997,6 +2173,12 @@ with pulse_tab:
     )
     pulse_plot = pulse_figure(result, result_survey, shown_signals)
     st.pyplot(pulse_plot, width="stretch")
+    st.caption(
+        "The visible time window always frames all three interface "
+        "reflections and retains the selected drive plus the modeled response "
+        "tail. Tick values remain absolute times from the excitation start; "
+        "a survey overlay is included in the same window."
+    )
     st.markdown(
         """
         <div class="section-head">
