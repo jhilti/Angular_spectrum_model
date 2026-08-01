@@ -14,6 +14,14 @@ from .ade import (
     plane_wave_intensity_w_m2,
 )
 from .grid import CartesianGrid
+from .labware import (
+    DEFAULT_LABCYTE_PLATE_ID,
+    LABCYTE_PLATES,
+    LabcytePlate,
+    get_labcyte_plate,
+    labcyte_plate_choice_ids,
+    labcyte_plate_choice_label,
+)
 from .materials import ElasticSolid, Fluid, ElasticPlate
 from .dmso_mixture import (
     DMSOWaterProperties,
@@ -69,6 +77,7 @@ __all__ = [
     "ADELinearScreening",
     "ButterworthVanDyke",
     "CartesianGrid",
+    "DEFAULT_LABCYTE_PLATE_ID",
     "DMSOWaterProperties",
     "ElasticPlate",
     "ElasticSolid",
@@ -77,6 +86,8 @@ __all__ = [
     "ElectroAcousticPulseEchoResult",
     "Fluid",
     "FocusedCircularAperture",
+    "LABCYTE_PLATES",
+    "LabcytePlate",
     "MeniscusSweepResult",
     "PulseEchoResult",
     "PulseResult",
@@ -96,8 +107,11 @@ __all__ = [
     "fluid_interface_scattering",
     "fwhm",
     "gaussian_transducer_response",
+    "get_labcyte_plate",
     "interpret_survey_geometry",
     "linear_ade_screening",
+    "labcyte_plate_choice_ids",
+    "labcyte_plate_choice_label",
     "load_survey_pulse_echo",
     "parse_survey_pulse_echo",
     "normal_power_transmission",

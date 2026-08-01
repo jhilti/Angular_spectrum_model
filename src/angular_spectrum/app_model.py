@@ -98,6 +98,11 @@ class SimulationInputs:
     excitation_cycles: float = 1.0
     transducer_diameter_mm: float = 13.0
     transducer_focal_length_mm: float = 25.4
+    plate_part_number: str = "PP-0200"
+    plate_material_name: str = "polypropylene"
+    plate_longitudinal_speed_m_s: float = PP_LONGITUDINAL_SPEED_M_S
+    plate_density_kg_m3: float = PP_DENSITY_KG_M3
+    plate_poisson_ratio: float = PP_POISSON_RATIO
     pp_longitudinal_attenuation_db_per_m: float = 0.0
     pp_shear_attenuation_db_per_m: float = 0.0
     fluid_attenuation_db_per_m: float = 0.0
@@ -113,27 +118,40 @@ class SimulationInputs:
             )
         positive = {
             "water path": self.water_path_mm,
-            "PP thickness": self.plate_thickness_mm,
+            "plate thickness": self.plate_thickness_mm,
             "fluid height": self.fluid_height_mm,
             "excitation frequency": self.excitation_frequency_mhz,
             "excitation cycles": self.excitation_cycles,
             "transducer diameter": self.transducer_diameter_mm,
             "transducer focal length": self.transducer_focal_length_mm,
+            "plate longitudinal speed": self.plate_longitudinal_speed_m_s,
+            "plate density": self.plate_density_kg_m3,
         }
         for name, value in positive.items():
             if not np.isfinite(value) or value <= 0.0:
                 raise ValueError(f"{name} must be finite and > 0")
         nonnegative = {
-            "PP longitudinal attenuation": (
+            "plate longitudinal attenuation": (
                 self.pp_longitudinal_attenuation_db_per_m
             ),
-            "PP shear attenuation": self.pp_shear_attenuation_db_per_m,
+            "plate shear attenuation": self.pp_shear_attenuation_db_per_m,
             "fluid attenuation": self.fluid_attenuation_db_per_m,
             "attenuation power": self.attenuation_power,
         }
         for name, value in nonnegative.items():
             if not np.isfinite(value) or value < 0.0:
                 raise ValueError(f"{name} must be finite and >= 0")
+        if not self.plate_part_number.strip():
+            raise ValueError("plate part number must not be empty")
+        if not self.plate_material_name.strip():
+            raise ValueError("plate material name must not be empty")
+        if (
+            not np.isfinite(self.plate_poisson_ratio)
+            or not 0.0 <= self.plate_poisson_ratio < 0.5
+        ):
+            raise ValueError(
+                "plate Poisson ratio must be finite and lie in [0, 0.5)"
+            )
         if self.numerical_preset not in NUMERICAL_PRESETS:
             raise ValueError(
                 f"numerical preset must be one of {tuple(NUMERICAL_PRESETS)}"
@@ -153,16 +171,16 @@ class InterfaceArrivals:
         """Interface arrival times measured from the excitation start."""
 
         return {
-            "Water–PP": self.water_pp_s * 1e6,
-            "PP–DMSO": self.pp_fluid_s * 1e6,
+            "Water–plate": self.water_pp_s * 1e6,
+            "Plate–DMSO": self.pp_fluid_s * 1e6,
             "DMSO–air": self.fluid_air_s * 1e6,
         }
 
     @property
     def relative_to_water_pp_us(self) -> dict[str, float]:
         return {
-            "Water–PP": 0.0,
-            "PP–DMSO": (self.pp_fluid_s - self.water_pp_s) * 1e6,
+            "Water–plate": 0.0,
+            "Plate–DMSO": (self.pp_fluid_s - self.water_pp_s) * 1e6,
             "DMSO–air": (self.fluid_air_s - self.water_pp_s) * 1e6,
         }
 
@@ -311,7 +329,7 @@ def interface_arrivals(
         + 2.0
         * inputs.plate_thickness_mm
         * 1e-3
-        / PP_LONGITUDINAL_SPEED_M_S
+        / inputs.plate_longitudinal_speed_m_s
     )
     fluid_air_s = (
         pp_fluid_s
@@ -356,11 +374,11 @@ def _build_model(
         attenuation_reference_hz=10.0e6,
     )
     air = Fluid("air", 1.196, 344.0)
-    polypropylene = ElasticSolid.from_longitudinal_speed_and_poisson(
-        name="polypropylene",
-        density_kg_m3=PP_DENSITY_KG_M3,
-        longitudinal_speed_m_s=PP_LONGITUDINAL_SPEED_M_S,
-        poisson_ratio=PP_POISSON_RATIO,
+    plate_solid = ElasticSolid.from_longitudinal_speed_and_poisson(
+        name=inputs.plate_material_name,
+        density_kg_m3=inputs.plate_density_kg_m3,
+        longitudinal_speed_m_s=inputs.plate_longitudinal_speed_m_s,
+        poisson_ratio=inputs.plate_poisson_ratio,
         longitudinal_attenuation_db_per_m=(
             inputs.pp_longitudinal_attenuation_db_per_m
         ),
@@ -384,7 +402,7 @@ def _build_model(
         ),
         incident_fluid=water,
         plate=ElasticPlate(
-            polypropylene,
+            plate_solid,
             inputs.plate_thickness_mm * 1e-3,
         ),
         transmitted_fluid=dmso,

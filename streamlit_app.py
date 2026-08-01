@@ -27,11 +27,22 @@ from angular_spectrum import (
 )
 from angular_spectrum.app_model import (
     NUMERICAL_PRESETS,
-    PP_LONGITUDINAL_SPEED_M_S,
+    PP_DENSITY_KG_M3,
+    PP_POISSON_RATIO,
     InteractiveSimulationResult,
     SimulationInputs,
     analytic_envelope,
     run_interactive_simulation,
+)
+from angular_spectrum.labware import (
+    DEFAULT_LABCYTE_PLATE_ID,
+    get_labcyte_plate,
+    labcyte_plate_choice_ids,
+    labcyte_plate_choice_label,
+)
+from angular_spectrum.schematic import (
+    acoustic_stack_geometry,
+    acoustic_stack_schematic_figure,
 )
 
 
@@ -54,6 +65,23 @@ GEOMETRY_MODES = (
     GEOMETRY_SURVEY_KEEP_WATER,
     GEOMETRY_SURVEY_ALL,
 )
+
+COC_DENSITY_KG_M3 = 1020.0
+COC_POISSON_RATIO_ASSUMPTION = 0.40
+
+
+def _plate_material_defaults(material: str) -> tuple[str, float, float]:
+    """Return explicit elastic defaults for one catalogue material."""
+
+    if material == "polypropylene":
+        return "polypropylene", PP_DENSITY_KG_M3, PP_POISSON_RATIO
+    if material == "coc":
+        return (
+            "cyclic olefin copolymer",
+            COC_DENSITY_KG_M3,
+            COC_POISSON_RATIO_ASSUMPTION,
+        )
+    raise ValueError(f"unsupported catalogue plate material: {material}")
 
 
 @dataclass(frozen=True)
@@ -603,7 +631,9 @@ def _used_geometry(
     geometry = interpret_survey_geometry(
         survey,
         incident_sound_speed_m_s=water.sound_speed_m_s,
-        plate_longitudinal_speed_m_s=PP_LONGITUDINAL_SPEED_M_S,
+        plate_longitudinal_speed_m_s=(
+            manual_inputs.plate_longitudinal_speed_m_s
+        ),
         fluid_sound_speed_m_s=properties.sound_speed_m_s,
     )
     if geometry_mode == GEOMETRY_SURVEY_KEEP_WATER:
@@ -628,7 +658,7 @@ def _used_geometry(
         fluid_height_mm=geometry.tof_fluid_height_m * 1e3,
     )
     source = (
-        f"Survey timing with {water_source}; PP thickness from stored/TOF "
+        f"Survey timing with {water_source}; plate thickness from stored/TOF "
         "timing and fluid height from the selected DMSO sound speed"
     )
     return used, source
@@ -638,8 +668,8 @@ def _measured_arrivals_since_excitation_us(
     survey: SurveyPulseEcho,
 ) -> dict[str, float]:
     return {
-        "Water–PP": survey.water_pp_time_s * 1e6,
-        "PP–DMSO": survey.pp_fluid_time_s * 1e6,
+        "Water–plate": survey.water_pp_time_s * 1e6,
+        "Plate–DMSO": survey.pp_fluid_time_s * 1e6,
         "DMSO–air": survey.fluid_top_time_s * 1e6,
     }
 
@@ -690,7 +720,7 @@ def display_signals(
     survey: SurveyPulseEcho | None,
     use_reference_calibration: bool,
 ) -> DisplaySignals:
-    """Return raw or water–PP-referenced traces for qualitative display."""
+    """Return raw or water–plate-referenced traces for display."""
 
     received = result.received_normalized.copy()
     plate = result.plate_normalized.copy()
@@ -767,7 +797,7 @@ def pulse_figure(
         color=COLORS["blue"],
         linewidth=1.15,
         label=(
-            "ASM simulation · water–PP referenced"
+            "ASM simulation · water–plate referenced"
             if signals.reference_calibration is not None
             else "ASM simulation"
         ),
@@ -788,8 +818,8 @@ def pulse_figure(
         measured_envelope /= max(float(np.max(measured_envelope)), 1e-30)
 
     marker_styles = {
-        "Water–PP": ("--", COLORS["muted"]),
-        "PP–DMSO": (":", COLORS["red"]),
+        "Water–plate": ("--", COLORS["muted"]),
+        "Plate–DMSO": (":", COLORS["red"]),
         "DMSO–air": ("-.", COLORS["green"]),
     }
     axes[0].axvline(
@@ -851,7 +881,7 @@ def pulse_figure(
         color=COLORS["blue"],
         linewidth=0.8,
         alpha=0.46,
-        label="PP plate component",
+        label="Plate component",
     )
     axes[1].plot(
         result.time_since_excitation_us,
@@ -946,7 +976,7 @@ def focus_figure(result: InteractiveSimulationResult) -> plt.Figure:
         label="Calculated focus",
     )
     axes[0].set(
-        xlabel="Position after PP [mm]",
+        xlabel="Position after plate [mm]",
         ylabel="Relative on-axis |p|² [normalized]",
         title="Monochromatic current focus",
     )
@@ -978,7 +1008,7 @@ def focus_figure(result: InteractiveSimulationResult) -> plt.Figure:
         label="Best water gap",
     )
     axes[1].set(
-        xlabel="Water gap to PP [mm]",
+        xlabel="Water gap to plate [mm]",
         ylabel="Relative meniscus |p|² [normalized]",
         title="Monochromatic focus optimization",
     )
@@ -1078,9 +1108,35 @@ def result_summary(
     geometry_source: str,
     signals: DisplaySignals,
 ) -> dict[str, Any]:
+    plate = get_labcyte_plate(result.inputs.plate_part_number)
     return {
         "inputs": asdict(result.inputs),
         "geometry_source": geometry_source,
+        "labware": {
+            "part_number": plate.id,
+            "name": plate.name,
+            "guid": plate.guid,
+            "family": plate.family,
+            "material": plate.material,
+            "well_count": plate.well_count,
+            "well_depth_mm": plate.well_depth_mm,
+            "well_top_width_mm": plate.well_top_width_mm,
+            "well_bottom_width_mm": plate.well_bottom_width_mm,
+            "well_pitch_mm": plate.well_pitch_mm,
+            "well_volume_ul": plate.well_volume_ul,
+            "catalogue_bottom_thickness_mm": plate.bottom_thickness_mm,
+            "simulation_bottom_thickness_mm": (
+                result.inputs.plate_thickness_mm
+            ),
+            "catalogue_raw_longitudinal_speed": (
+                plate.raw_longitudinal_speed
+            ),
+            "catalogue_inferred_longitudinal_speed_m_s": (
+                plate.inferred_longitudinal_speed_m_s
+            ),
+            "source_url": plate.source_url,
+            "limitations": list(plate.limitations),
+        },
         "water_properties": asdict(result.water_properties),
         "dmso_properties": asdict(result.dmso_properties),
         "arrivals_relative_to_water_pp_us": (
@@ -1178,13 +1234,13 @@ def result_summary(
                 "is numerical/model uncertainty, not a physical precursor"
             ),
             (
-                "a water-PP reference correction, when enabled, is a common "
+                "a water-plate reference correction, when enabled, is a common "
                 "qualitative system filter and not an ADC pressure calibration"
             ),
             (
-                "PP and fluid attenuation are user inputs and default to zero"
+                "plate and fluid attenuation are user inputs and default to zero"
             ),
-            "the meniscus is planar and parallel to the PP plate",
+            "the meniscus is planar and parallel to the plate",
         ],
     }
 
@@ -1202,7 +1258,7 @@ st.markdown(
             <div class="hero-tags">
                 <span class="hero-tag">10 MHz broadband</span>
                 <span class="hero-tag">Monostatic pulse echo</span>
-                <span class="hero-tag">Elastic PP plate</span>
+                <span class="hero-tag">Elastic plate model</span>
             </div>
         </div>
         <div class="layer-card">
@@ -1210,7 +1266,7 @@ st.markdown(
             <div class="layer-flow">
                 <span class="layer water">H₂O</span>
                 <span class="layer-arrow">→</span>
-                <span class="layer pp">PP</span>
+                <span class="layer pp">plate</span>
                 <span class="layer-arrow">→</span>
                 <span class="layer dmso">DMSO</span>
                 <span class="layer-arrow">→</span>
@@ -1293,22 +1349,59 @@ with st.sidebar:
                 f"{_optional_mm(survey.stored_probe_to_plate_m)}"
             )
             st.write(
-                f"PP thickness: {_optional_mm(survey.stored_plate_thickness_m)}"
+                "Stored plate thickness: "
+                f"{_optional_mm(survey.stored_plate_thickness_m)}"
             )
             st.write(
                 f"Stored fluid height: {_optional_mm(survey.stored_fluid_height_m)}"
             )
             st.write(f"Stored fluid label: {survey.fluid_material or 'missing'}")
     use_reference_calibration = st.checkbox(
-        "Match waveform to water–PP reference",
+        "Match waveform to water–plate reference",
         disabled=survey is None,
         key="use_reference_calibration",
         help=(
             "Derives one bounded complex system-response correction only from "
-            "the measured water–PP echo, then applies it equally to all "
+            "the measured water–plate echo, then applies it equally to all "
             "simulated echoes. ADC amplitude remains qualitative."
         ),
     )
+
+    st.divider()
+    st.markdown(
+        '<div class="sidebar-kicker">Labware</div>',
+        unsafe_allow_html=True,
+    )
+    plate_part_number = st.selectbox(
+        "Labcyte plate",
+        options=labcyte_plate_choice_ids(),
+        index=labcyte_plate_choice_ids().index(DEFAULT_LABCYTE_PLATE_ID),
+        format_func=labcyte_plate_choice_label,
+        key="labcyte_plate_part_number",
+        help=(
+            "Offline snapshot of the resolved UK Robotics labware catalogue. "
+            "Commercial barcode, colour, and sterile variants share their "
+            "family's acoustic bottom profile."
+        ),
+    )
+    plate_record = get_labcyte_plate(plate_part_number)
+    plate_material_name, plate_density_default, plate_poisson_default = (
+        _plate_material_defaults(plate_record.material)
+    )
+    st.caption(
+        f"{plate_record.name} · {plate_record.well_depth_mm:g} mm well depth · "
+        f"{plate_record.well_volume_ul:g} µL nominal volume"
+    )
+    st.markdown(
+        f"[Open catalogue record ↗]({plate_record.source_url})",
+        help="Source geometry used by the bundled offline snapshot.",
+    )
+    if plate_record.material == "coc":
+        st.warning(
+            "COC density and Poisson ratio are modeling assumptions because "
+            "the labware catalogue does not provide them. Verify the actual "
+            "plate material before quantitative use."
+        )
 
     st.divider()
     with st.form("simulation_form"):
@@ -1343,18 +1436,23 @@ with st.sidebar:
             unsafe_allow_html=True,
         )
         water_path_mm = st.number_input(
-            "Water gap to PP [mm]",
+            "Water gap to plate [mm]",
             min_value=0.1,
             max_value=60.0,
             value=25.3,
             step=0.1,
         )
         plate_thickness_mm = st.number_input(
-            "PP thickness [mm]",
+            "Plate bottom thickness [mm]",
             min_value=0.05,
             max_value=5.0,
-            value=0.78,
+            value=float(plate_record.bottom_thickness_mm),
             step=0.01,
+            key=f"plate_thickness_mm_{plate_record.family}",
+            help=(
+                "Initialized from the selected catalogue profile. Enter your "
+                "own measured value when available."
+            ),
         )
         geometry_mode = st.selectbox(
             "Geometry source",
@@ -1363,7 +1461,7 @@ with st.sidebar:
             key="geometry_mode",
             help=(
                 "The recommended survey mode preserves an independently known "
-                "manual water gap while deriving PP and fluid thickness from "
+                "manual water gap while deriving plate and fluid thickness from "
                 "echo differences. The all-distances mode also uses the stored "
                 "water distance."
             ),
@@ -1401,20 +1499,46 @@ with st.sidebar:
             value=25.4,
             step=0.1,
         )
-        with st.expander("Advanced material loss", expanded=False):
+        with st.expander("Advanced plate acoustics & loss", expanded=False):
             st.caption(
-                "Optional amplitude attenuation at 10 MHz. Leave at zero "
-                "until measured or independently fitted."
+                "Catalogue sound speed is inferred from its raw unit field. "
+                "Density and Poisson ratio are not catalogue measurements. "
+                "Leave losses at zero until measured or independently fitted."
+            )
+            plate_longitudinal_speed_m_s = st.number_input(
+                "Plate longitudinal speed [m/s]",
+                min_value=500.0,
+                max_value=10000.0,
+                value=float(plate_record.inferred_longitudinal_speed_m_s),
+                step=1.0,
+                key=f"plate_speed_{plate_record.family}",
+            )
+            plate_density_kg_m3 = st.number_input(
+                "Plate density [kg/m³]",
+                min_value=100.0,
+                max_value=10000.0,
+                value=float(plate_density_default),
+                step=10.0,
+                key=f"plate_density_{plate_record.family}",
+            )
+            plate_poisson_ratio = st.number_input(
+                "Plate Poisson ratio",
+                min_value=0.0,
+                max_value=0.49,
+                value=float(plate_poisson_default),
+                step=0.01,
+                format="%.2f",
+                key=f"plate_poisson_{plate_record.family}",
             )
             pp_alpha_l_db_m = st.number_input(
-                "PP longitudinal loss [dB/m]",
+                "Plate longitudinal loss [dB/m]",
                 min_value=0.0,
                 max_value=100000.0,
                 value=0.0,
                 step=100.0,
             )
             pp_alpha_s_db_m = st.number_input(
-                "PP shear loss [dB/m]",
+                "Plate shear loss [dB/m]",
                 min_value=0.0,
                 max_value=100000.0,
                 value=0.0,
@@ -1458,6 +1582,11 @@ if submitted:
         excitation_cycles=excitation_cycles,
         transducer_diameter_mm=transducer_diameter_mm,
         transducer_focal_length_mm=transducer_focal_length_mm,
+        plate_part_number=plate_record.id,
+        plate_material_name=plate_material_name,
+        plate_longitudinal_speed_m_s=plate_longitudinal_speed_m_s,
+        plate_density_kg_m3=plate_density_kg_m3,
+        plate_poisson_ratio=plate_poisson_ratio,
         pp_longitudinal_attenuation_db_per_m=pp_alpha_l_db_m,
         pp_shear_attenuation_db_per_m=pp_alpha_s_db_m,
         fluid_attenuation_db_per_m=fluid_alpha_db_m,
@@ -1508,9 +1637,15 @@ shown_signals = display_signals(
     result_survey,
     bool(st.session_state.get("use_reference_calibration", False)),
 )
+result_plate = get_labcyte_plate(result.inputs.plate_part_number)
+if plate_record.id != result_plate.id:
+    st.info(
+        f"The visible result still uses {result_plate.id}. Select "
+        "**Simulate and optimize focus** to apply the new plate choice."
+    )
 if shown_signals.calibration_error is not None:
     st.warning(
-        "The water–PP reference correction could not be applied: "
+        "The water–plate reference correction could not be applied: "
         f"{shown_signals.calibration_error}. Raw simulation traces are shown."
     )
 if result_survey is not None:
@@ -1561,7 +1696,7 @@ st.markdown(
     f"""
     <div class="metric-grid">
         <div class="metric-card">
-            <div class="metric-label">Focus after PP</div>
+            <div class="metric-label">Focus after plate</div>
             <div class="metric-value">{result.focus_after_pp_mm:.3f} mm</div>
             <div class="metric-hint">
                 {result.focus_from_aperture_mm:.3f} mm from aperture
@@ -1598,7 +1733,7 @@ st.markdown(
 if result.focus_scan_boundary_limited:
     st.warning(
         "The strongest point of the current axial scan lies on its boundary. "
-        "The transducer is probably focused at or before the PP exit; the "
+        "The transducer is probably focused at or before the plate exit; the "
         "recommended water-gap search is the more useful focus result."
     )
 if result.optimal_water_path_boundary_limited:
@@ -1624,11 +1759,61 @@ if shown_signals.reference_calibration is not None:
     calibration = shown_signals.reference_calibration
     st.info(
         "Waveform reference active: a regularized common-system correction "
-        "derived only from the water–PP echo is applied to every displayed "
+        "derived only from the water–plate echo is applied to every displayed "
         f"simulation trace from {calibration.minimum_frequency_hz / 1e6:.1f} "
         f"to {calibration.maximum_frequency_hz / 1e6:.1f} MHz. Geometry, "
         "focus, and absolute gain are unchanged."
     )
+
+stack_geometry = acoustic_stack_geometry(
+    result.inputs,
+    result.focus_from_aperture_mm,
+    result_plate,
+)
+if result_plate.material == "coc":
+    st.warning(
+        "This result uses a COC plate. Its bottom geometry and longitudinal "
+        "speed come from the labware catalogue; density and Poisson ratio are "
+        "editable modeling assumptions, and loss still defaults to zero."
+    )
+if stack_geometry.fill_exceeds_well_depth:
+    st.warning(
+        f"The entered {result.inputs.fluid_height_mm:.2f} mm fill height "
+        f"exceeds the catalogue well depth of {result_plate.well_depth_mm:.2f} "
+        "mm. The hatched region in the schematic indicates this geometrically "
+        "inconsistent input."
+    )
+st.markdown(
+    """
+    <div class="section-head">
+        <div>
+            <div class="section-kicker">Live geometry</div>
+            <h2>Acoustic stack cross-section</h2>
+        </div>
+        <p>
+            Upward-facing transducer, selected well bottom, liquid layer,
+            meniscus, and current modeled focus.
+        </p>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+stack_plot = acoustic_stack_schematic_figure(
+    result.inputs,
+    result.focus_from_aperture_mm,
+    result_plate,
+)
+st.pyplot(stack_plot, width="stretch")
+st.caption(
+    "Axial distances and well dimensions are scaled from the current result. "
+    "The meniscus is planar in the physics model; the translucent cone is an "
+    "illustration of convergence, not a calculated pressure map."
+)
+st.markdown(
+    f"Labware geometry: [{result_plate.id} catalogue record ↗]"
+    f"({result_plate.source_url}) · offline snapshot bundled for reproducible "
+    "simulation."
+)
 
 pulse_tab, focus_tab, data_tab = st.tabs(
     ["Pulse response", "Focus optimization", "Spectrum & exports"]
