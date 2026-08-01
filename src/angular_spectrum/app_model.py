@@ -149,6 +149,16 @@ class InterfaceArrivals:
     fluid_air_s: float
 
     @property
+    def since_excitation_us(self) -> dict[str, float]:
+        """Interface arrival times measured from the excitation start."""
+
+        return {
+            "Water–PP": self.water_pp_s * 1e6,
+            "PP–DMSO": self.pp_fluid_s * 1e6,
+            "DMSO–air": self.fluid_air_s * 1e6,
+        }
+
+    @property
     def relative_to_water_pp_us(self) -> dict[str, float]:
         return {
             "Water–PP": 0.0,
@@ -165,7 +175,7 @@ class InteractiveSimulationResult:
     water_properties: WaterProperties
     dmso_properties: DMSOWaterProperties
     arrivals: InterfaceArrivals
-    time_relative_us: NDArray[np.float64]
+    time_since_excitation_us: NDArray[np.float64]
     received_normalized: NDArray[np.float64]
     plate_normalized: NDArray[np.float64]
     surface_normalized: NDArray[np.float64]
@@ -186,6 +196,15 @@ class InteractiveSimulationResult:
     optimal_water_path_boundary_limited: bool
     simulated_frequency_bin_count: int
     fluid_cavity_echo_count: int
+
+    @property
+    def time_relative_us(self) -> NDArray[np.float64]:
+        """Backward-compatible time axis relative to the water–PP echo."""
+
+        return (
+            self.time_since_excitation_us
+            - self.arrivals.water_pp_s * 1e6
+        )
 
 
 def analytic_envelope(signal: NDArray[np.float64]) -> NDArray[np.float64]:
@@ -684,7 +703,7 @@ def run_interactive_simulation(
         water_properties=water_properties(inputs.temperature_c),
         dmso_properties=dmso_properties,
         arrivals=arrivals,
-        time_relative_us=(pulse_echo.time_s - arrivals.water_pp_s) * 1e6,
+        time_since_excitation_us=pulse_echo.time_s * 1e6,
         received_normalized=received,
         plate_normalized=plate,
         surface_normalized=surface,

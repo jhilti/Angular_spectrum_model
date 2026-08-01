@@ -137,12 +137,6 @@ def load_normalized_survey(
     if "water_pp" not in interface_times_us:
         raise ValueError("survey JSON has no PlateBaseSampleTimeUSecs")
     absolute_time_us = start_us + np.arange(signal.size) / sample_rate_hz * 1e6
-    relative_time_us = absolute_time_us - interface_times_us["water_pp"]
-    relative_interfaces_us = {
-        name: value - interface_times_us["water_pp"]
-        for name, value in interface_times_us.items()
-    }
-
     warnings = [
         "ADC independently normalized; no absolute amplitude calibration",
     ]
@@ -151,7 +145,7 @@ def load_normalized_survey(
     warnings.append(
         "temperature and independently measured fill height unavailable"
     )
-    return relative_time_us, signal, relative_interfaces_us, warnings
+    return absolute_time_us, signal, interface_times_us, warnings
 
 
 def parse_args() -> argparse.Namespace:
@@ -335,9 +329,10 @@ def main() -> None:
     envelope = analytic_envelope(received)
     plate_envelope = analytic_envelope(plate_response)
     backing_envelope = analytic_envelope(backing)
-    relative_time_us = (result.time_s - front_arrival_s) * 1e6
-    pp_back_relative_us = (pp_back_arrival_s - front_arrival_s) * 1e6
-    air_relative_us = (air_arrival_s - front_arrival_s) * 1e6
+    time_since_excitation_us = result.time_s * 1e6
+    front_arrival_us = front_arrival_s * 1e6
+    pp_back_arrival_us = pp_back_arrival_s * 1e6
+    air_arrival_us = air_arrival_s * 1e6
 
     survey_overlay = None
     survey_warnings: list[str] = []
@@ -365,14 +360,14 @@ def main() -> None:
         constrained_layout=True,
     )
     axes[0].plot(
-        relative_time_us,
+        time_since_excitation_us,
         received,
         color="#355f8a",
         linewidth=0.9,
         label="Simulation, normalized",
     )
     axes[0].plot(
-        relative_time_us,
+        time_since_excitation_us,
         envelope,
         color="#d1495b",
         linewidth=1.0,
@@ -380,7 +375,7 @@ def main() -> None:
         label="Simulation envelope",
     )
     axes[0].plot(
-        relative_time_us,
+        time_since_excitation_us,
         -envelope,
         color="#d1495b",
         linewidth=1.0,
@@ -397,23 +392,23 @@ def main() -> None:
             label="Measurement, ADC normalized separately",
         )
     axes[0].axvline(
-        0.0,
+        front_arrival_us,
         color="0.45",
         linestyle="--",
         linewidth=1.0,
         label="water–PP",
     )
     axes[0].axvline(
-        pp_back_relative_us,
+        pp_back_arrival_us,
         color="#d1495b",
         linestyle=":",
         linewidth=1.2,
         label="PP–DMSO",
     )
     axes[0].set(
-        xlim=(-0.5, 1.5),
+        xlim=(front_arrival_us - 0.5, front_arrival_us + 1.5),
         ylim=(-1.2, 1.2),
-        xlabel="Time relative to water–PP [µs]",
+        xlabel="Time since excitation start [µs]",
         ylabel="Signal [normalized separately]",
         title=(
             "Close view of the two PP interfaces "
@@ -423,29 +418,29 @@ def main() -> None:
     axes[0].legend(loc="upper right", ncols=2)
 
     axes[1].plot(
-        relative_time_us,
+        time_since_excitation_us,
         received,
         color="#355f8a",
         linewidth=0.75,
         label="received signal",
     )
     axes[1].plot(
-        relative_time_us,
+        time_since_excitation_us,
         envelope,
         color="#d1495b",
         linewidth=1.1,
         label="envelope",
     )
     axes[1].plot(
-        relative_time_us,
+        time_since_excitation_us,
         -envelope,
         color="#d1495b",
         linewidth=1.1,
     )
     interface_markers = [
-        (0.0, "--", "0.45", "water–PP"),
-        (pp_back_relative_us, ":", "#d1495b", "PP–DMSO"),
-        (air_relative_us, "-.", "#2a9d8f", "DMSO–air"),
+        (front_arrival_us, "--", "0.45", "water–PP"),
+        (pp_back_arrival_us, ":", "#d1495b", "PP–DMSO"),
+        (air_arrival_us, "-.", "#2a9d8f", "DMSO–air"),
     ]
     for arrival_us, linestyle, color, label in interface_markers:
         axes[1].axvline(
@@ -455,23 +450,23 @@ def main() -> None:
             linewidth=1.2,
             label=label,
         )
-    full_view_end_us = max(air_relative_us + 2.0, 8.0)
+    full_view_end_us = air_arrival_us + 2.0
     axes[1].set(
-        xlim=(-0.5, full_view_end_us),
-        xlabel="Time relative to water–PP [µs]",
+        xlim=(0.0, full_view_end_us),
+        xlabel="Time since excitation start [µs]",
         ylabel="Received signal [normalized]",
         title="Complete pulse-echo response with three interfaces",
     )
     axes[1].legend(loc="upper right", ncols=2)
 
     axes[2].plot(
-        relative_time_us,
+        time_since_excitation_us,
         plate_envelope,
         label="complete PP plate response",
         color="#355f8a",
     )
     axes[2].plot(
-        relative_time_us,
+        time_since_excitation_us,
         backing_envelope,
         label="first retained DMSO–air return",
         color="#d1495b",
@@ -484,8 +479,8 @@ def main() -> None:
             linewidth=1.0,
         )
     axes[2].set(
-        xlim=(-0.5, full_view_end_us),
-        xlabel="Time relative to water–PP [µs]",
+        xlim=(0.0, full_view_end_us),
+        xlabel="Time since excitation start [µs]",
         ylabel="Envelope [normalized]",
         title="Physical model components",
     )
@@ -499,6 +494,7 @@ def main() -> None:
     np.savez_compressed(
         args.output_directory / f"{output_stem}.npz",
         time_s=result.time_s,
+        time_since_excitation_start_s=result.time_s,
         time_relative_to_water_pp_s=result.time_s - front_arrival_s,
         drive_signal=result.drive_signal,
         received_signal=result.received_signal,
@@ -606,7 +602,7 @@ def main() -> None:
     if survey_overlay is not None:
         _, _, survey_interfaces_us = survey_overlay
         print(
-            "Survey times relative to water–PP:",
+            "Survey times since excitation start:",
             ", ".join(
                 f"{name}={value:.3f} µs"
                 for name, value in survey_interfaces_us.items()

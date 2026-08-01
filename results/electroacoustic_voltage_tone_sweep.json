@@ -38,7 +38,7 @@
     "dmso_volume_percent": 80.0,
     "water_density_kg_m3": 997.8003203172385,
     "water_sound_speed_m_s": 1488.3579112389878,
-    "fluid_density_kg_m3": 1100.987821936803,
+    "fluid_density_kg_m3": 1100.9878219368031,
     "fluid_sound_speed_m_s": 1631.9958165935382
   },
   "numerics": {
@@ -64,9 +64,9 @@
       "cycles": 2.0,
       "terminal_peak_v": 75.0,
       "aperture_peak": 74.97238260725413,
-      "first_surface_gated_peak": 10.42640257989002,
-      "global_composite_received_peak": 16.36135766416117,
-      "plate_front_peak": 16.356286075958362,
+      "first_surface_gated_peak": 10.426402579890022,
+      "global_composite_received_peak": 16.361357664161165,
+      "plate_front_peak": 16.35628607595836,
       "net_absorbed_load_energy_j": 1.1250000000000004e-05,
       "fluid_cavity_echo_count": 1
     },
@@ -84,7 +84,7 @@
       "cycles": 8.0,
       "terminal_peak_v": 75.0,
       "aperture_peak": 75.620718316079,
-      "first_surface_gated_peak": 11.427230993514529,
+      "first_surface_gated_peak": 11.427230993514527,
       "global_composite_received_peak": 21.915474393718675,
       "plate_front_peak": 21.945141369813534,
       "net_absorbed_load_energy_j": 4.499999999999997e-05,

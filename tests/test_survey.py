@@ -56,6 +56,9 @@ class SurveyImportTests(unittest.TestCase):
         self.assertEqual(parsed.tone_length_cycles, 1.0)
         self.assertEqual(parsed.probe_voltage_setting_v, 100.0)
         self.assertFalse(parsed.excitation_metadata_is_calibrated)
+        self.assertAlmostEqual(parsed.time_s[0], 10.0e-6)
+        self.assertAlmostEqual(parsed.time_since_excitation_s[0], 10.0e-6)
+        self.assertAlmostEqual(parsed.relative_time_s[0], -2.0e-6)
 
     def test_geometry_exposes_stored_sound_speed_assumptions(self) -> None:
         document = self._document()

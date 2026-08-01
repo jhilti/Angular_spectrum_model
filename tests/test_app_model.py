@@ -135,6 +135,11 @@ class InteractiveAppModelTests(unittest.TestCase):
             del NUMERICAL_PRESETS["_Test"]
 
         self.assertTrue(np.all(np.isfinite(result.received_normalized)))
+        self.assertEqual(float(result.time_since_excitation_us[0]), 0.0)
+        self.assertAlmostEqual(
+            float(result.time_relative_us[0]),
+            -result.arrivals.water_pp_s * 1e6,
+        )
         self.assertAlmostEqual(
             float(np.max(np.abs(result.received_normalized))),
             1.0,

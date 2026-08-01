@@ -634,16 +634,13 @@ def _used_geometry(
     return used, source
 
 
-def _measured_arrivals_relative_us(
+def _measured_arrivals_since_excitation_us(
     survey: SurveyPulseEcho,
 ) -> dict[str, float]:
     return {
-        "Water–PP": 0.0,
-        "PP–DMSO": survey.pp_round_trip_time_s * 1e6,
-        "DMSO–air": (
-            survey.fluid_top_time_s - survey.water_pp_time_s
-        )
-        * 1e6,
+        "Water–PP": survey.water_pp_time_s * 1e6,
+        "PP–DMSO": survey.pp_fluid_time_s * 1e6,
+        "DMSO–air": survey.fluid_top_time_s * 1e6,
     }
 
 
@@ -701,15 +698,15 @@ def display_signals(
     calibration = None
     calibration_error = None
     if survey is not None and use_reference_calibration:
-        simulation_time_s = result.time_relative_us * 1e-6
+        simulation_time_s = result.time_since_excitation_us * 1e-6
         try:
             calibration = estimate_reference_transfer(
-                survey.relative_time_s,
+                survey.time_since_excitation_s,
                 survey.normalized_signal,
                 simulation_time_s,
                 received,
-                measured_arrival_s=0.0,
-                simulated_arrival_s=0.0,
+                measured_arrival_s=survey.water_pp_time_s,
+                simulated_arrival_s=result.arrivals.water_pp_s,
                 target_time_s=simulation_time_s,
             )
             received = apply_reference_transfer(
@@ -755,17 +752,17 @@ def pulse_figure(
     survey: SurveyPulseEcho | None,
     signals: DisplaySignals,
 ) -> plt.Figure:
-    relative_arrivals = result.arrivals.relative_to_water_pp_us
+    arrivals_since_excitation = result.arrivals.since_excitation_us
     figure, axes = plt.subplots(
         2,
         1,
         figsize=(11.5, 6.8),
-        sharex=True,
+        sharex=False,
         constrained_layout=True,
     )
     figure.patch.set_facecolor(COLORS["paper"])
     axes[0].plot(
-        result.time_relative_us,
+        result.time_since_excitation_us,
         signals.received,
         color=COLORS["blue"],
         linewidth=1.15,
@@ -778,7 +775,7 @@ def pulse_figure(
     measured_relative_us = None
     measured_envelope = None
     if survey is not None:
-        measured_relative_us = survey.relative_time_s * 1e6
+        measured_relative_us = survey.time_since_excitation_s * 1e6
         axes[0].plot(
             measured_relative_us,
             survey.normalized_signal,
@@ -795,7 +792,15 @@ def pulse_figure(
         "PP–DMSO": (":", COLORS["red"]),
         "DMSO–air": ("-.", COLORS["green"]),
     }
-    for name, arrival_us in relative_arrivals.items():
+    axes[0].axvline(
+        0.0,
+        color=COLORS["gold"],
+        linestyle="-",
+        linewidth=1.0,
+        alpha=0.8,
+        label="Excitation start",
+    )
+    for name, arrival_us in arrivals_since_excitation.items():
         linestyle, color = marker_styles[name]
         axes[0].axvline(
             arrival_us,
@@ -805,7 +810,9 @@ def pulse_figure(
             label=f"Simulated {name}",
         )
     if survey is not None:
-        for name, arrival_us in _measured_arrivals_relative_us(survey).items():
+        for name, arrival_us in (
+            _measured_arrivals_since_excitation_us(survey).items()
+        ):
             _, color = marker_styles[name]
             axes[0].axvline(
                 arrival_us,
@@ -825,21 +832,21 @@ def pulse_figure(
     )
 
     axes[1].fill_between(
-        result.time_relative_us,
+        result.time_since_excitation_us,
         0.0,
         signals.envelope,
         color=COLORS["red"],
         alpha=0.08,
     )
     axes[1].plot(
-        result.time_relative_us,
+        result.time_since_excitation_us,
         signals.envelope,
         color=COLORS["red"],
         linewidth=1.35,
         label="Simulation envelope",
     )
     axes[1].plot(
-        result.time_relative_us,
+        result.time_since_excitation_us,
         np.abs(signals.plate),
         color=COLORS["blue"],
         linewidth=0.8,
@@ -847,7 +854,7 @@ def pulse_figure(
         label="PP plate component",
     )
     axes[1].plot(
-        result.time_relative_us,
+        result.time_since_excitation_us,
         np.abs(signals.surface),
         color=COLORS["green"],
         linewidth=0.9,
@@ -863,7 +870,7 @@ def pulse_figure(
             alpha=0.65,
             label="Survey envelope",
         )
-    for name, arrival_us in relative_arrivals.items():
+    for name, arrival_us in arrivals_since_excitation.items():
         linestyle, color = marker_styles[name]
         axes[1].axvline(
             arrival_us,
@@ -872,7 +879,7 @@ def pulse_figure(
             linewidth=1.0,
         )
     axes[1].set(
-        xlabel="Time relative to water–PP [µs]",
+        xlabel="Time since excitation start [µs]",
         ylabel="Envelope / component [relative]",
     )
     axes[1].legend(
@@ -885,13 +892,21 @@ def pulse_figure(
     measured_last_arrival = 0.0
     if survey is not None:
         measured_last_arrival = max(
-            _measured_arrivals_relative_us(survey).values()
+            _measured_arrivals_since_excitation_us(survey).values()
         )
     last_arrival = max(
-        max(relative_arrivals.values()),
+        max(arrivals_since_excitation.values()),
         measured_last_arrival,
     )
-    axes[1].set_xlim(-0.55, last_arrival + 2.0)
+    first_arrival = min(arrivals_since_excitation.values())
+    if survey is not None:
+        first_arrival = min(
+            first_arrival,
+            min(_measured_arrivals_since_excitation_us(survey).values()),
+        )
+    axes[0].set_xlim(0.0, last_arrival + 2.0)
+    axes[0].set_xlabel("Time since excitation start [µs]")
+    axes[1].set_xlim(max(0.0, first_arrival - 0.55), last_arrival + 2.0)
     for axis in axes:
         _style_axis(axis)
     return figure
@@ -1018,15 +1033,15 @@ def result_csv(
     survey: SurveyPulseEcho | None,
     signals: DisplaySignals,
 ) -> bytes:
-    measured = np.full(result.time_relative_us.shape, np.nan)
+    measured = np.full(result.time_since_excitation_us.shape, np.nan)
     if survey is not None:
-        measured_time_us = survey.relative_time_s * 1e6
+        measured_time_us = survey.time_since_excitation_s * 1e6
         inside = (
-            (result.time_relative_us >= measured_time_us[0])
-            & (result.time_relative_us <= measured_time_us[-1])
+            (result.time_since_excitation_us >= measured_time_us[0])
+            & (result.time_since_excitation_us <= measured_time_us[-1])
         )
         measured[inside] = np.interp(
-            result.time_relative_us[inside],
+            result.time_since_excitation_us[inside],
             measured_time_us,
             survey.normalized_signal,
         )
@@ -1034,7 +1049,7 @@ def result_csv(
     writer = csv.writer(output, lineterminator="\n")
     writer.writerow(
         [
-            "time_relative_to_water_pp_us",
+            "time_since_excitation_start_us",
             "simulation_raw_normalized",
             "simulation_displayed_normalized",
             "displayed_envelope_normalized",
@@ -1045,7 +1060,7 @@ def result_csv(
     )
     writer.writerows(
         zip(
-            result.time_relative_us,
+            result.time_since_excitation_us,
             result.received_normalized,
             signals.received,
             signals.envelope,
@@ -1070,6 +1085,9 @@ def result_summary(
         "dmso_properties": asdict(result.dmso_properties),
         "arrivals_relative_to_water_pp_us": (
             result.arrivals.relative_to_water_pp_us
+        ),
+        "arrivals_since_excitation_start_us": (
+            result.arrivals.since_excitation_us
         ),
         "focus": {
             "focus_after_pp_mm": result.focus_after_pp_mm,
@@ -1640,16 +1658,16 @@ with pulse_tab:
                 <div class="section-kicker">Arrival markers</div>
                 <h2>Interface timing</h2>
             </div>
-            <p>All times are referenced to the water–PP reflection.</p>
+            <p>All times are measured from the excitation start.</p>
         </div>
         """,
         unsafe_allow_html=True,
     )
-    simulated_arrivals = result.arrivals.relative_to_water_pp_us
+    simulated_arrivals = result.arrivals.since_excitation_us
     measured_arrivals = (
         None
         if result_survey is None
-        else _measured_arrivals_relative_us(result_survey)
+        else _measured_arrivals_since_excitation_us(result_survey)
     )
     timing_rows = []
     for name, simulated_us in simulated_arrivals.items():
@@ -1661,9 +1679,9 @@ with pulse_tab:
         if result_survey is not None and measured_us is not None:
             raw_correlation = round(
                 local_waveform_correlation(
-                    result_survey.relative_time_s,
+                    result_survey.time_since_excitation_s,
                     result_survey.normalized_signal,
-                    result.time_relative_us * 1e-6,
+                    result.time_since_excitation_us * 1e-6,
                     result.received_normalized,
                     measured_arrival_s=measured_us * 1e-6,
                     simulated_arrival_s=simulated_us * 1e-6,
@@ -1672,9 +1690,9 @@ with pulse_tab:
             )
             displayed_correlation = round(
                 local_waveform_correlation(
-                    result_survey.relative_time_s,
+                    result_survey.time_since_excitation_s,
                     result_survey.normalized_signal,
-                    result.time_relative_us * 1e-6,
+                    result.time_since_excitation_us * 1e-6,
                     shown_signals.received,
                     measured_arrival_s=measured_us * 1e-6,
                     simulated_arrival_s=simulated_us * 1e-6,
@@ -1703,10 +1721,11 @@ with pulse_tab:
         width="stretch",
     )
     st.caption(
-        "Times are relative to the water–PP marker. A timing residual can arise "
-        "from uncertain geometry, fluid concentration/temperature, PP sound "
-        "speed, interface picking, or fixed electronic delay. Correlations use "
-        "independently normalized 0.6 µs windows and a ±0.15 µs local lag search."
+        "Times are measured from the excitation start. A timing residual can "
+        "arise from uncertain geometry, fluid concentration/temperature, PP "
+        "sound speed, interface picking, or fixed electronic delay. Correlations "
+        "use independently normalized 0.6 µs windows and a ±0.15 µs local lag "
+        "search."
     )
 
 with focus_tab:
