@@ -125,7 +125,7 @@ def test_first_load_shows_labware_and_estimated_stack_preview() -> None:
     assert len(app.image) == 1
     assert len(app.tabs) == 0
     assert not any(
-        button.label == "Apply survey values to inputs"
+        button.label == "Apply stored survey values to inputs"
         for button in app.button
     )
 
@@ -145,10 +145,10 @@ def test_survey_upload_previews_then_copies_safe_values() -> None:
     assert _selectbox(app, "Geometry source").value == (
         "Survey TOF · keep manual water gap"
     )
-    assert _button(app, "Apply survey values to inputs")
+    assert _button(app, "Apply stored survey values to inputs")
     assert _markdown_containing(app, "Survey → inputs")
 
-    _button(app, "Apply survey values to inputs").click().run()
+    _button(app, "Apply stored survey values to inputs").click().run()
 
     fluid_speed_m_s = dmso_water_properties(
         0.80,
@@ -160,20 +160,23 @@ def test_survey_upload_previews_then_copies_safe_values() -> None:
     assert _selectbox(app, "Labcyte plate").value == "PP-0200-BC"
     assert _selectbox(app, "Geometry source").value == "Manual geometry"
     assert _number_input(app, "Water gap to plate [mm]").value == pytest.approx(
-        25.3
+        9.0
     )
     assert _number_input(
         app, "Plate bottom thickness [mm]"
     ).value == pytest.approx(0.65)
     assert _number_input(
         app, "Liquid fill height [mm]"
-    ).value == pytest.approx(expected_height_mm)
+    ).value == pytest.approx(1.125)
+    assert _number_input(app, "Liquid fill height [mm]").proto.set_value
     assert expected_height_mm != pytest.approx(1.125)
     assert _number_input(
         app, "Excitation frequency [MHz]"
     ).value == pytest.approx(8.0)
     assert _number_input(app, "Pulse cycles").value == pytest.approx(2.0)
-    assert any("Survey values copied" in item.value for item in app.success)
+    assert any(
+        "Stored survey values copied" in item.value for item in app.success
+    )
     assert len(app.tabs) == 0
 
 
@@ -210,6 +213,7 @@ def test_survey_timestamp_button_overwrites_complete_geometry_only() -> None:
     assert _number_input(
         app, "Liquid fill height [mm]"
     ).value == pytest.approx(expected_fill_mm)
+    assert _number_input(app, "Liquid fill height [mm]").proto.set_value
     assert _number_input(app, "DMSO [vol.%]").value == pytest.approx(80.0)
     assert _number_input(app, "Temperature [°C]").value == pytest.approx(22.0)
     assert _number_input(
@@ -232,7 +236,7 @@ def test_survey_actions_render_in_json_section() -> None:
     app.file_uploader[0].set_value(_survey_upload()).run()
 
     expected_labels = {
-        "Apply survey values to inputs",
+        "Apply stored survey values to inputs",
         "Calculate all distances from timestamps",
     }
     first_divider_index = min(
@@ -253,14 +257,14 @@ def test_survey_actions_render_in_json_section() -> None:
     assert matching_indices[0] < first_divider_index
 
 
-def test_survey_all_distances_mode_can_copy_water_gap_explicitly() -> None:
+def test_stored_survey_button_copies_water_gap_independent_of_mode() -> None:
     app = _app()
     app.file_uploader[0].set_value(_survey_upload()).run()
 
     _selectbox(app, "Geometry source").set_value(
         "Survey metadata · all distances"
     ).run()
-    _button(app, "Apply survey values to inputs").click().run()
+    _button(app, "Apply stored survey values to inputs").click().run()
 
     assert not app.exception
     assert _number_input(app, "Water gap to plate [mm]").value == pytest.approx(
@@ -277,14 +281,9 @@ def test_survey_copy_keeps_volume_and_height_inputs_synchronized() -> None:
     filling_input.set_value("Volume [µL]").run()
     app.file_uploader[0].set_value(_survey_upload()).run()
 
-    _button(app, "Apply survey values to inputs").click().run()
+    _button(app, "Apply stored survey values to inputs").click().run()
 
-    fluid_speed_m_s = dmso_water_properties(
-        0.80,
-        basis="volume",
-        temperature_c=22.0,
-    ).sound_speed_m_s
-    expected_height_mm = fluid_speed_m_s * 1.5e-6 * 0.5 * 1e3
+    expected_height_mm = 1.125
     expected_volume_ul = get_labcyte_plate(
         "PP-0200-BC"
     ).estimated_fill_volume_ul(expected_height_mm)
@@ -292,6 +291,7 @@ def test_survey_copy_keeps_volume_and_height_inputs_synchronized() -> None:
     assert _number_input(
         app, "Liquid fill volume [µL]"
     ).value == pytest.approx(expected_volume_ul)
+    assert _number_input(app, "Liquid fill volume [µL]").proto.set_value
     assert any(
         f"{expected_height_mm:.3f} mm" in item.value
         and f"{expected_volume_ul:.2f} µL per well" in item.value

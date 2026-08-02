@@ -368,12 +368,13 @@ echo markers. **Survey metadata · all distances** is available for diagnostics,
 but it also adopts the stored TOF-derived water distance.
 
 Directly below the JSON upload, the web interface shows **Survey → inputs**
-before it changes any field. **Apply survey values to inputs** retains the
-existing conservative behavior: it copies the recognized plate, stored
-plate-bottom thickness, DMSO/temperature-corrected filling and estimated µL,
-plus recorded excitation frequency and tone length. By default it keeps the
-manual water gap; the all-distances geometry mode can intentionally adopt the
-stored survey distance.
+before it changes any field. **Apply stored survey values to inputs** copies
+the recognized plate, all available distance fields already present in the
+JSON (`ProbeToPlateBaseDistance`, `WellBaseThickness`, and `FluidHeight`), plus
+the recorded excitation frequency and tone length. It does not reinterpret
+those stored distances using the selected DMSO concentration or temperature.
+They can already be firmware-derived TOF values with an assumed sound speed,
+so the preview identifies their source explicitly.
 
 The second action, **Calculate all distances from timestamps**, ignores every
 stored distance and overwrites the complete geometry from the three echo
