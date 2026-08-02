@@ -14,6 +14,8 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import streamlit as st
 
 from angular_spectrum import (
@@ -1243,6 +1245,37 @@ def display_signals(
     )
 
 
+def _pulse_echo_window_us(
+    result: InteractiveSimulationResult,
+    survey: SurveyPulseEcho | None,
+    signals: DisplaySignals,
+) -> tuple[float, float]:
+    """Return the shared initial time window for static and interactive plots."""
+
+    arrivals_since_excitation = result.arrivals.since_excitation_us
+    measured_arrivals = (
+        None
+        if survey is None
+        else _measured_arrivals_since_excitation_us(survey)
+    )
+    last_simulated_arrival_us = max(arrivals_since_excitation.values())
+    drive_duration_us = (
+        result.inputs.excitation_cycles
+        / result.inputs.excitation_frequency_mhz
+    )
+    right_padding_us = modeled_echo_right_padding_us(
+        result.time_since_excitation_us,
+        analytic_envelope(signals.surface),
+        last_arrival_us=last_simulated_arrival_us,
+        drive_duration_us=drive_duration_us,
+    )
+    return interface_reflection_window_us(
+        arrivals_since_excitation,
+        measured_arrivals,
+        minimum_right_padding_us=right_padding_us,
+    )
+
+
 def pulse_figure(
     result: InteractiveSimulationResult,
     survey: SurveyPulseEcho | None,
@@ -1385,32 +1418,280 @@ def pulse_figure(
         frameon=False,
     )
 
-    measured_arrivals = (
-        None
-        if survey is None
-        else _measured_arrivals_since_excitation_us(survey)
-    )
-    last_simulated_arrival_us = max(arrivals_since_excitation.values())
-    drive_duration_us = (
-        result.inputs.excitation_cycles
-        / result.inputs.excitation_frequency_mhz
-    )
-    right_padding_us = modeled_echo_right_padding_us(
-        result.time_since_excitation_us,
-        analytic_envelope(signals.surface),
-        last_arrival_us=last_simulated_arrival_us,
-        drive_duration_us=drive_duration_us,
-    )
-    echo_xlim = interface_reflection_window_us(
-        arrivals_since_excitation,
-        measured_arrivals,
-        minimum_right_padding_us=right_padding_us,
-    )
+    echo_xlim = _pulse_echo_window_us(result, survey, signals)
     axes[0].set_xlim(*echo_xlim)
     axes[0].set_xlabel("Time since excitation start [µs]")
     axes[1].set_xlim(*echo_xlim)
     for axis in axes:
         _style_axis(axis)
+    return figure
+
+
+def interactive_pulse_figure(
+    result: InteractiveSimulationResult,
+    survey: SurveyPulseEcho | None,
+    signals: DisplaySignals,
+) -> go.Figure:
+    """Build a touch-friendly, linked-axis Plotly pulse-response figure."""
+
+    arrivals_since_excitation = result.arrivals.since_excitation_us
+    measured_arrivals = (
+        None
+        if survey is None
+        else _measured_arrivals_since_excitation_us(survey)
+    )
+    measured_time_us: np.ndarray | None = None
+    measured_envelope: np.ndarray | None = None
+    if survey is not None:
+        measured_time_us = survey.time_since_excitation_s * 1e6
+        measured_envelope = analytic_envelope(survey.normalized_signal)
+        measured_envelope /= max(float(np.max(measured_envelope)), 1e-30)
+
+    figure = make_subplots(
+        rows=2,
+        cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.13,
+        subplot_titles=(
+            "Received pulse echo at the transmitting aperture",
+            "Envelope and interface components",
+        ),
+    )
+    simulation_label = (
+        "ASM simulation · water–plate referenced"
+        if signals.reference_calibration is not None
+        else "ASM simulation"
+    )
+    figure.add_trace(
+        go.Scattergl(
+            x=result.time_since_excitation_us,
+            y=signals.received,
+            mode="lines",
+            line={"color": COLORS["blue"], "width": 1.4},
+            name=simulation_label,
+            hovertemplate="%{x:.4f} µs<br>%{y:.4f}<extra>%{fullData.name}</extra>",
+        ),
+        row=1,
+        col=1,
+    )
+    if measured_time_us is not None and survey is not None:
+        figure.add_trace(
+            go.Scattergl(
+                x=measured_time_us,
+                y=survey.normalized_signal,
+                mode="lines",
+                line={"color": COLORS["ink"], "width": 1.0},
+                opacity=0.68,
+                name="Survey ADC (independently normalized)",
+                hovertemplate=(
+                    "%{x:.4f} µs<br>%{y:.4f}"
+                    "<extra>%{fullData.name}</extra>"
+                ),
+            ),
+            row=1,
+            col=1,
+        )
+
+    figure.add_trace(
+        go.Scattergl(
+            x=result.time_since_excitation_us,
+            y=signals.envelope,
+            mode="lines",
+            fill="tozeroy",
+            fillcolor="rgba(207, 95, 75, 0.09)",
+            line={"color": COLORS["red"], "width": 1.5},
+            name="Simulation envelope",
+            hovertemplate="%{x:.4f} µs<br>%{y:.4f}<extra>%{fullData.name}</extra>",
+        ),
+        row=2,
+        col=1,
+    )
+    figure.add_trace(
+        go.Scattergl(
+            x=result.time_since_excitation_us,
+            y=np.abs(signals.plate),
+            mode="lines",
+            line={"color": COLORS["blue"], "width": 1.0},
+            opacity=0.5,
+            name="Plate component",
+            hovertemplate="%{x:.4f} µs<br>%{y:.4f}<extra>%{fullData.name}</extra>",
+        ),
+        row=2,
+        col=1,
+    )
+    figure.add_trace(
+        go.Scattergl(
+            x=result.time_since_excitation_us,
+            y=np.abs(signals.surface),
+            mode="lines",
+            line={"color": COLORS["green"], "width": 1.1},
+            opacity=0.8,
+            name="DMSO–air component",
+            hovertemplate="%{x:.4f} µs<br>%{y:.4f}<extra>%{fullData.name}</extra>",
+        ),
+        row=2,
+        col=1,
+    )
+    if measured_time_us is not None and measured_envelope is not None:
+        figure.add_trace(
+            go.Scattergl(
+                x=measured_time_us,
+                y=measured_envelope,
+                mode="lines",
+                line={"color": COLORS["ink"], "width": 1.15},
+                opacity=0.65,
+                name="Survey envelope",
+                hovertemplate=(
+                    "%{x:.4f} µs<br>%{y:.4f}"
+                    "<extra>%{fullData.name}</extra>"
+                ),
+            ),
+            row=2,
+            col=1,
+        )
+
+    rf_values = [np.asarray(signals.received)]
+    if survey is not None:
+        rf_values.append(np.asarray(survey.normalized_signal))
+    rf_min = min(float(np.min(values)) for values in rf_values)
+    rf_max = max(float(np.max(values)) for values in rf_values)
+    rf_padding = max(0.08, 0.04 * (rf_max - rf_min))
+    rf_range = (rf_min - rf_padding, rf_max + rf_padding)
+    envelope_values = [
+        np.asarray(signals.envelope),
+        np.abs(signals.plate),
+        np.abs(signals.surface),
+    ]
+    if measured_envelope is not None:
+        envelope_values.append(measured_envelope)
+    envelope_max = max(float(np.max(values)) for values in envelope_values)
+    envelope_range = (0.0, max(1.05, envelope_max * 1.05))
+
+    marker_styles = {
+        "Water–plate": ("dash", COLORS["muted"]),
+        "Plate–DMSO": ("dot", COLORS["red"]),
+        "DMSO–air": ("dashdot", COLORS["green"]),
+    }
+
+    def add_marker(
+        *,
+        row: int,
+        arrival_us: float,
+        y_range: tuple[float, float],
+        name: str,
+        color: str,
+        dash: str,
+        showlegend: bool,
+        opacity: float = 1.0,
+    ) -> None:
+        figure.add_trace(
+            go.Scattergl(
+                x=[arrival_us, arrival_us],
+                y=list(y_range),
+                mode="lines",
+                line={"color": color, "width": 1.15, "dash": dash},
+                opacity=opacity,
+                name=name,
+                showlegend=showlegend,
+                hovertemplate=(
+                    f"{name}<br>{arrival_us:.4f} µs<extra></extra>"
+                ),
+            ),
+            row=row,
+            col=1,
+        )
+
+    add_marker(
+        row=1,
+        arrival_us=0.0,
+        y_range=rf_range,
+        name="Excitation start",
+        color=COLORS["gold"],
+        dash="solid",
+        showlegend=True,
+        opacity=0.8,
+    )
+    for name, arrival_us in arrivals_since_excitation.items():
+        dash, color = marker_styles[name]
+        add_marker(
+            row=1,
+            arrival_us=arrival_us,
+            y_range=rf_range,
+            name=f"Simulated {name}",
+            color=color,
+            dash=dash,
+            showlegend=True,
+        )
+        add_marker(
+            row=2,
+            arrival_us=arrival_us,
+            y_range=envelope_range,
+            name=f"Simulated {name}",
+            color=color,
+            dash=dash,
+            showlegend=False,
+        )
+    if measured_arrivals is not None:
+        for name, arrival_us in measured_arrivals.items():
+            _, color = marker_styles[name]
+            add_marker(
+                row=1,
+                arrival_us=arrival_us,
+                y_range=rf_range,
+                name=f"Survey {name}",
+                color=color,
+                dash="dot",
+                showlegend=False,
+                opacity=0.68,
+            )
+
+    echo_xlim = _pulse_echo_window_us(result, survey, signals)
+    figure.update_layout(
+        height=680,
+        paper_bgcolor=COLORS["paper"],
+        plot_bgcolor=COLORS["paper"],
+        font={"color": COLORS["ink"], "family": "Arial, sans-serif"},
+        hovermode="x unified",
+        dragmode="zoom",
+        margin={"l": 65, "r": 24, "t": 90, "b": 65},
+        legend={
+            "orientation": "h",
+            "x": 0.0,
+            "xanchor": "left",
+            "y": 1.12,
+            "yanchor": "top",
+            "font": {"size": 10},
+        },
+        uirevision=f"pulse-{echo_xlim[0]:.8g}-{echo_xlim[1]:.8g}",
+    )
+    figure.update_xaxes(
+        range=list(echo_xlim),
+        fixedrange=False,
+        gridcolor=COLORS["grid"],
+        zeroline=False,
+        showspikes=True,
+        spikecolor=COLORS["muted"],
+        spikemode="across",
+        spikesnap="cursor",
+    )
+    figure.update_yaxes(
+        fixedrange=False,
+        gridcolor=COLORS["grid"],
+        zeroline=False,
+    )
+    figure.update_yaxes(title_text="RF signal [relative]", row=1, col=1)
+    figure.update_yaxes(
+        title_text="Envelope / component [relative]",
+        row=2,
+        col=1,
+    )
+    figure.update_xaxes(
+        title_text="Time since excitation start [µs]",
+        row=2,
+        col=1,
+    )
+    for annotation in figure.layout.annotations:
+        annotation.font = {"color": COLORS["ink"], "size": 14}
     return figure
 
 
@@ -3004,12 +3285,32 @@ with pulse_tab:
         unsafe_allow_html=True,
     )
     pulse_plot = pulse_figure(result, result_survey, shown_signals)
-    st.pyplot(pulse_plot, width="stretch")
+    pulse_interactive_plot = interactive_pulse_figure(
+        result,
+        result_survey,
+        shown_signals,
+    )
+    st.plotly_chart(
+        pulse_interactive_plot,
+        width="stretch",
+        key="pulse_response_interactive",
+        on_select="ignore",
+        config={
+            "responsive": True,
+            "scrollZoom": True,
+            "displayModeBar": True,
+            "displaylogo": False,
+            "doubleClick": "reset",
+            "modeBarButtonsToRemove": ["select2d", "lasso2d", "toImage"],
+        },
+    )
     st.caption(
         "The visible time window always frames all three interface "
         "reflections and retains the selected drive plus the modeled response "
         "tail. Tick values remain absolute times from the excitation start; "
-        "a survey overlay is included in the same window."
+        "a survey overlay is included in the same window. Drag or pinch to "
+        "zoom, select the hand tool to pan, and use Reset axes to return to "
+        "this echo-focused view."
     )
     st.markdown(
         """

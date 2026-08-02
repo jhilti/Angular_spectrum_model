@@ -393,6 +393,12 @@ approximate. Timestamp differences cancel a common fixed delay but remain
 sensitive to interface picking and reflection phase. Neither survey button
 runs the simulation or treats ADC amplitude as calibrated pressure.
 
+The two-panel pulse-response chart is interactive. Its RF and envelope time
+axes zoom and pan together while retaining independent amplitude axes. Drag or
+pinch to zoom, choose the hand tool to pan, and use **Reset axes** to restore
+the initial window around all three interface reflections. The PNG download
+remains a publication-friendly static rendering of the same traces.
+
 A separate comparison tool provides a detailed analysis of JSON timestamps,
 locally normalized echo shapes, and spectra:
 

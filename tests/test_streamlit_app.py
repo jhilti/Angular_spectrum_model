@@ -370,6 +370,27 @@ def test_submit_replaces_preview_with_one_exact_asm_stack() -> None:
         "Focus optimization",
         "Spectrum & exports",
     ]
+    pulse_response_tab = app.tabs[0]
+    interactive_charts = pulse_response_tab.get("plotly_chart")
+    assert len(interactive_charts) == 1
+    assert not pulse_response_tab.image
+    chart_config = json.loads(interactive_charts[0].proto.config)
+    chart_spec = json.loads(interactive_charts[0].proto.spec)
+    assert chart_config["responsive"] is True
+    assert chart_config["scrollZoom"] is True
+    assert chart_config["displayModeBar"] is True
+    assert chart_spec["layout"]["dragmode"] == "zoom"
+    assert chart_spec["layout"]["xaxis"]["matches"] == "x2"
+    assert chart_spec["layout"]["xaxis"]["range"] == (
+        chart_spec["layout"]["xaxis2"]["range"]
+    )
+    trace_names = {trace["name"] for trace in chart_spec["data"]}
+    assert {
+        "ASM simulation",
+        "Simulation envelope",
+        "Plate component",
+        "DMSO–air component",
+    } <= trace_names
 
     fill_height = next(
         item
