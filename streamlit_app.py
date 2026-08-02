@@ -14,9 +14,14 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 import streamlit as st
+
+try:
+    import plotly.graph_objects as go
+    from plotly.subplots import make_subplots
+except ModuleNotFoundError:
+    go = None
+    make_subplots = None
 
 from angular_spectrum import (
     ReferenceTransferCalibration,
@@ -1433,6 +1438,9 @@ def interactive_pulse_figure(
     signals: DisplaySignals,
 ) -> go.Figure:
     """Build a touch-friendly, linked-axis Plotly pulse-response figure."""
+
+    if go is None or make_subplots is None:
+        raise RuntimeError("Plotly is not installed")
 
     arrivals_since_excitation = result.arrivals.since_excitation_us
     measured_arrivals = (
@@ -3285,25 +3293,37 @@ with pulse_tab:
         unsafe_allow_html=True,
     )
     pulse_plot = pulse_figure(result, result_survey, shown_signals)
-    pulse_interactive_plot = interactive_pulse_figure(
-        result,
-        result_survey,
-        shown_signals,
-    )
-    st.plotly_chart(
-        pulse_interactive_plot,
-        width="stretch",
-        key="pulse_response_interactive",
-        on_select="ignore",
-        config={
-            "responsive": True,
-            "scrollZoom": True,
-            "displayModeBar": True,
-            "displaylogo": False,
-            "doubleClick": "reset",
-            "modeBarButtonsToRemove": ["select2d", "lasso2d", "toImage"],
-        },
-    )
+    if go is not None and make_subplots is not None:
+        pulse_interactive_plot = interactive_pulse_figure(
+            result,
+            result_survey,
+            shown_signals,
+        )
+        st.plotly_chart(
+            pulse_interactive_plot,
+            width="stretch",
+            key="pulse_response_interactive",
+            on_select="ignore",
+            config={
+                "responsive": True,
+                "scrollZoom": True,
+                "displayModeBar": True,
+                "displaylogo": False,
+                "doubleClick": "reset",
+                "modeBarButtonsToRemove": [
+                    "select2d",
+                    "lasso2d",
+                    "toImage",
+                ],
+            },
+        )
+    else:
+        st.pyplot(pulse_plot, width="stretch")
+        st.warning(
+            "Interactive zoom is temporarily unavailable because the cloud "
+            "environment has not installed Plotly yet. The static pulse plot "
+            "remains available while the dependency rebuild completes."
+        )
     st.caption(
         "The visible time window always frames all three interface "
         "reflections and retains the selected drive plus the modeled response "

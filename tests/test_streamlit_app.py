@@ -1,5 +1,6 @@
 """App-level regression tests for the interactive Streamlit flow."""
 
+import builtins
 from dataclasses import dataclass
 import json
 from pathlib import Path
@@ -73,6 +74,39 @@ def _selectbox(app: AppTest, label: str):
 
 def _button(app: AppTest, label: str):
     return next(item for item in app.button if item.label == label)
+
+
+def test_cloud_requirements_explicitly_declare_plotly() -> None:
+    requirements = (APP_PATH.parent / "requirements.txt").read_text(
+        encoding="utf-8"
+    )
+
+    assert "plotly>=6,<7" in requirements.splitlines()
+
+
+def test_app_starts_while_cloud_plotly_install_is_pending(monkeypatch) -> None:
+    real_import = builtins.__import__
+
+    def import_without_plotly(name, *args, **kwargs):
+        if name in {"plotly.graph_objects", "plotly.subplots"}:
+            raise ModuleNotFoundError(name)
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", import_without_plotly)
+
+    app = _app()
+    _button(app, "Simulate and optimize focus").click().run(timeout=180)
+
+    assert not app.exception
+    pulse_response_tab = next(
+        tab for tab in app.tabs if tab.label == "Pulse response"
+    )
+    assert len(pulse_response_tab.image) == 1
+    assert not pulse_response_tab.get("plotly_chart")
+    assert any(
+        "Interactive zoom is temporarily unavailable" in warning.value
+        for warning in pulse_response_tab.warning
+    )
 
 
 def test_mixed_survey_schema_stops_with_reboot_guidance(monkeypatch) -> None:

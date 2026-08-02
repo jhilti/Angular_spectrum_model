@@ -1,5 +1,5 @@
-# Keep the project installation tied to the checked-out Streamlit deployment.
-# Updating this file forces Community Cloud to rebuild the editable package
-# when the entrypoint and internal model schema change together.
-# Deployment dependency epoch: interactive-pulse-v1
--e .[app]
+# Keep Cloud dependencies explicit so Community Cloud detects additions and
+# rebuilds the environment before hot-reloading the entrypoint.
+-e .
+streamlit>=1.60,<2
+plotly>=6,<7
