@@ -99,6 +99,23 @@ class SurveyImportTests(unittest.TestCase):
                     parse_survey_pulse_echo(document).plate_type_id
                 )
 
+    def test_interface_times_must_be_finite_positive_and_increasing(self) -> None:
+        invalid_times = (
+            (-1.0, 0.5, 1.0),
+            (12.0, 12.0, 14.0),
+            (12.0, 13.0, float("inf")),
+            (12.0, float("nan"), 14.0),
+        )
+        for water_us, plate_us, fluid_us in invalid_times:
+            document = self._document()
+            result = document["SurveyResult"]
+            result["PlateBaseSampleTimeUSecs"] = water_us
+            result["WellBaseSampleTimeUSecs"] = plate_us
+            result["FluidTopSampleTimeUSecs"] = fluid_us
+            with self.subTest(times=(water_us, plate_us, fluid_us)):
+                with self.assertRaisesRegex(ValueError, "finite, positive"):
+                    parse_survey_pulse_echo(document)
+
 
 if __name__ == "__main__":
     unittest.main()

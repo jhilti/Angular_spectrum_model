@@ -137,12 +137,19 @@ def parse_survey_pulse_echo(
         name: float(value) * 1e-6
         for name, value in required_times.items()
     }
-    if not (
+    interface_values = tuple(interface_times_s.values())
+    if any(
+        not np.isfinite(value) or value <= 0.0
+        for value in interface_values
+    ) or not (
         interface_times_s["water_pp_time_s"]
         < interface_times_s["pp_fluid_time_s"]
         < interface_times_s["fluid_top_time_s"]
     ):
-        raise ValueError("survey interface times must be strictly increasing")
+        raise ValueError(
+            "survey interface times must be finite, positive, and strictly "
+            "increasing"
+        )
 
     time_s = start_us * 1e-6 + np.arange(signal.size) / sample_rate_hz
     edge_count = max(8, signal.size // 20)

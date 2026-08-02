@@ -7,7 +7,7 @@ from pathlib import Path
 import angular_spectrum
 import pytest
 
-from angular_spectrum import dmso_water_properties
+from angular_spectrum import dmso_water_properties, water_properties
 from angular_spectrum.labware import get_labcyte_plate
 
 
@@ -146,7 +146,7 @@ def test_survey_upload_previews_then_copies_safe_values() -> None:
         "Survey TOF · keep manual water gap"
     )
     assert _button(app, "Apply survey values to inputs")
-    assert _markdown_containing(app, "Survey → input preview")
+    assert _markdown_containing(app, "Survey → inputs")
 
     _button(app, "Apply survey values to inputs").click().run()
 
@@ -175,6 +175,82 @@ def test_survey_upload_previews_then_copies_safe_values() -> None:
     assert _number_input(app, "Pulse cycles").value == pytest.approx(2.0)
     assert any("Survey values copied" in item.value for item in app.success)
     assert len(app.tabs) == 0
+
+
+def test_survey_timestamp_button_overwrites_complete_geometry_only() -> None:
+    app = _app()
+    app.file_uploader[0].set_value(_survey_upload()).run()
+
+    _button(app, "Calculate all distances from timestamps").click().run()
+
+    plate = get_labcyte_plate("PP-0200-BC")
+    expected_water_mm = (
+        0.5 * water_properties(22.0).sound_speed_m_s * 12.0e-6 * 1e3
+    )
+    expected_plate_mm = (
+        0.5 * plate.inferred_longitudinal_speed_m_s * 0.5e-6 * 1e3
+    )
+    fluid_speed_m_s = dmso_water_properties(
+        0.80,
+        basis="volume",
+        temperature_c=22.0,
+    ).sound_speed_m_s
+    expected_fill_mm = 0.5 * fluid_speed_m_s * 1.5e-6 * 1e3
+    expected_volume_ul = plate.estimated_fill_volume_ul(expected_fill_mm)
+
+    assert not app.exception
+    assert _selectbox(app, "Labcyte plate").value == "PP-0200-BC"
+    assert _selectbox(app, "Geometry source").value == "Manual geometry"
+    assert _number_input(
+        app, "Water gap to plate [mm]"
+    ).value == pytest.approx(expected_water_mm)
+    assert _number_input(
+        app, "Plate bottom thickness [mm]"
+    ).value == pytest.approx(expected_plate_mm)
+    assert _number_input(
+        app, "Liquid fill height [mm]"
+    ).value == pytest.approx(expected_fill_mm)
+    assert _number_input(app, "DMSO [vol.%]").value == pytest.approx(80.0)
+    assert _number_input(app, "Temperature [°C]").value == pytest.approx(22.0)
+    assert _number_input(
+        app, "Excitation frequency [MHz]"
+    ).value == pytest.approx(10.0)
+    assert _number_input(app, "Pulse cycles").value == pytest.approx(1.0)
+    assert any(
+        f"{expected_fill_mm:.3f} mm" in item.value
+        and f"{expected_volume_ul:.2f} µL per well" in item.value
+        for item in app.caption
+    )
+    assert expected_water_mm != pytest.approx(9.0)
+    assert expected_plate_mm != pytest.approx(0.65)
+    assert expected_fill_mm != pytest.approx(1.125)
+    assert any("Timestamp-derived" in item.value for item in app.success)
+
+
+def test_survey_actions_render_in_json_section() -> None:
+    app = _app()
+    app.file_uploader[0].set_value(_survey_upload()).run()
+
+    expected_labels = {
+        "Apply survey values to inputs",
+        "Calculate all distances from timestamps",
+    }
+    first_divider_index = min(
+        index
+        for index, child in app.sidebar.children.items()
+        if child.type == "divider"
+    )
+    matching_indices: list[int] = []
+    for index, child in app.sidebar.children.items():
+        try:
+            labels = {button.label for button in child.button}
+        except AttributeError:
+            continue
+        if expected_labels <= labels:
+            matching_indices.append(index)
+
+    assert len(matching_indices) == 1
+    assert matching_indices[0] < first_divider_index
 
 
 def test_survey_all_distances_mode_can_copy_water_gap_explicitly() -> None:

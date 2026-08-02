@@ -826,12 +826,15 @@ def _survey_input_update(
     current_water_path_mm: float,
     geometry_mode: str,
     plate_longitudinal_speed_m_s: float | None = None,
+    derive_all_geometry_from_timestamps: bool = False,
 ) -> SurveyInputUpdate:
     """Build a conservative, inspectable survey-to-input update.
 
-    Echo differences determine plate and liquid thickness. Absolute water
-    timing is copied only in the explicitly selected all-distances mode,
-    because it can contain an unknown trigger/electronics delay.
+    Echo differences determine plate and liquid thickness. With
+    ``derive_all_geometry_from_timestamps``, the absolute first arrival also
+    determines the approximate water gap and stored distance fields are
+    ignored. Otherwise the existing conservative geometry-mode behavior is
+    retained.
     """
 
     notes: list[str] = []
@@ -870,7 +873,25 @@ def _survey_input_update(
     )
 
     water_path_mm: float | None = None
-    if geometry_mode == GEOMETRY_SURVEY_ALL:
+    if derive_all_geometry_from_timestamps:
+        water_path_m = geometry.tof_probe_to_plate_m
+        water_source = (
+            "water–PP timestamp with selected water sound speed · approximate"
+        )
+        notes.append(
+            "The absolute water–PP timestamp can include trigger, electronics, "
+            "phase-center, and group-delay offsets. Verify this water gap "
+            "independently before quantitative focus work."
+        )
+        candidate = water_path_m * 1e3
+        if 0.1 <= candidate <= 60.0:
+            water_path_mm = candidate
+        else:
+            notes.append(
+                f"Timestamp-derived water gap {candidate:.3f} mm is outside "
+                "the app range and will not be copied."
+            )
+    elif geometry_mode == GEOMETRY_SURVEY_ALL:
         water_path_m = (
             geometry.stored_probe_to_plate_m
             if geometry.stored_probe_to_plate_m is not None
@@ -892,7 +913,13 @@ def _survey_input_update(
     else:
         water_source = "kept manual · absolute survey timing may include delay"
 
-    if geometry.stored_plate_thickness_m is not None:
+    if derive_all_geometry_from_timestamps:
+        plate_thickness_candidate_mm = geometry.tof_plate_thickness_m * 1e3
+        plate_thickness_source = (
+            "water–PP to PP–liquid timestamp difference with selected plate "
+            "sound speed"
+        )
+    elif geometry.stored_plate_thickness_m is not None:
         plate_thickness_candidate_mm = (
             geometry.stored_plate_thickness_m * 1e3
         )
@@ -927,6 +954,20 @@ def _survey_input_update(
         notes.append(
             f"Survey-derived filling {fluid_height_candidate_mm:.3f} mm is "
             f"outside the {target_plate.id} well range and will not be copied."
+        )
+
+    if derive_all_geometry_from_timestamps and any(
+        value is None
+        for value in (water_path_mm, plate_thickness_mm, fluid_height_mm)
+    ):
+        water_path_mm = None
+        plate_thickness_mm = None
+        fluid_height_mm = None
+        fluid_volume_ul = None
+        notes.append(
+            "Timestamp geometry is applied all-or-none; no distance will be "
+            "copied until water gap, plate bottom, and filling are all inside "
+            "their valid input ranges."
         )
 
     excitation_frequency_mhz: float | None = None
@@ -973,6 +1014,8 @@ def _apply_survey_input_update(
     *,
     fill_input_mode: str,
     survey_token: tuple[str, str],
+    status_message: str,
+    copy_excitation: bool = True,
 ) -> None:
     """Copy a validated update into widget state without running the model."""
 
@@ -991,11 +1034,11 @@ def _apply_survey_input_update(
         state.pop("fluid_volume_ul_widget", None)
         state["_fill_plate_id"] = update.plate.id
         state["_fill_mode"] = fill_input_mode
-    if update.excitation_frequency_mhz is not None:
+    if copy_excitation and update.excitation_frequency_mhz is not None:
         state["excitation_frequency_mhz_input"] = (
             update.excitation_frequency_mhz
         )
-    if update.excitation_cycles is not None:
+    if copy_excitation and update.excitation_cycles is not None:
         state["excitation_cycles_input"] = update.excitation_cycles
 
     # The copied numbers are now ordinary, visible manual inputs. This avoids
@@ -1006,10 +1049,7 @@ def _apply_survey_input_update(
     state.pop("geometry_source", None)
     state["_survey_apply_status"] = {
         "token": survey_token,
-        "message": (
-            "Survey values copied. Review the visible inputs, then select "
-            "Simulate and optimize focus."
-        ),
+        "message": status_message,
     }
 
 
@@ -1862,6 +1902,10 @@ with st.sidebar:
                 )
             )
             st.write(f"Stored fluid label: {survey.fluid_material or 'missing'}")
+    # Filled after the material and geometry widgets have supplied their
+    # current values. The retained container position keeps both survey
+    # actions directly below the JSON metadata in the rendered sidebar.
+    survey_actions_container = st.container()
     use_reference_calibration = st.checkbox(
         "Match waveform to water–plate reference",
         disabled=survey is None,
@@ -2080,7 +2124,8 @@ with st.sidebar:
         "Water gap to plate [mm]",
         min_value=0.1,
         max_value=60.0,
-        step=0.1,
+        step=0.01,
+        format="%.3f",
         key="water_path_mm_input",
     )
     plate_thickness_state_key = f"plate_thickness_mm_{plate_record.family}"
@@ -2092,7 +2137,8 @@ with st.sidebar:
         "Plate bottom thickness [mm]",
         min_value=0.05,
         max_value=5.0,
-        step=0.01,
+        step=0.001,
+        format="%.4f",
         key=plate_thickness_state_key,
         help=(
             "Initialized from the selected catalogue profile. Enter your "
@@ -2136,6 +2182,16 @@ with st.sidebar:
             geometry_mode=geometry_mode,
             plate_longitudinal_speed_m_s=survey_plate_speed,
         )
+        survey_timestamp_update = _survey_input_update(
+            survey,
+            current_plate=plate_record,
+            dmso_percent=dmso_percent,
+            temperature_c=temperature_c,
+            current_water_path_mm=water_path_mm,
+            geometry_mode=geometry_mode,
+            plate_longitudinal_speed_m_s=survey_plate_speed,
+            derive_all_geometry_from_timestamps=True,
+        )
         water_preview = (
             f"{survey_update.current_water_path_mm:.3f} mm · unchanged"
             if survey_update.water_path_mm is None
@@ -2165,48 +2221,120 @@ with st.sidebar:
             if survey_update.excitation_cycles is None
             else f"{survey_update.excitation_cycles:g} cycles"
         )
-        with st.container(border=True):
-            st.markdown("**Survey → input preview**")
-            st.markdown(
-                f"- **Plate:** {survey_update.plate.id} · "
-                f"{survey_update.plate_source}\n"
-                f"- **Water gap:** {water_preview} · "
-                f"{survey_update.water_source}\n"
-                f"- **Plate bottom:** {plate_preview} · "
-                f"{survey_update.plate_thickness_source}\n"
-                f"- **Filling:** {fill_preview} · "
-                f"{survey_update.fluid_source}\n"
-                f"- **Excitation:** {frequency_preview} · {cycles_preview}"
+        timestamp_water_preview = (
+            "not copied"
+            if survey_timestamp_update.water_path_mm is None
+            else f"{survey_timestamp_update.water_path_mm:.3f} mm"
+        )
+        timestamp_plate_preview = (
+            "not copied"
+            if survey_timestamp_update.plate_thickness_mm is None
+            else f"{survey_timestamp_update.plate_thickness_mm:.4f} mm"
+        )
+        timestamp_fill_preview = (
+            "not copied"
+            if survey_timestamp_update.fluid_height_mm is None
+            or survey_timestamp_update.fluid_volume_ul is None
+            else (
+                f"{survey_timestamp_update.fluid_height_mm:.4f} mm · "
+                f"≈{survey_timestamp_update.fluid_volume_ul:.2f} µL"
             )
-            st.caption(
-                "DMSO concentration, temperature, focus, losses, and all "
-                "amplitude settings remain unchanged. The stored fluid "
-                "height is not copied because it is derived from an assumed "
-                "sound speed."
+        )
+        timestamp_geometry_complete = all(
+            value is not None
+            for value in (
+                survey_timestamp_update.water_path_mm,
+                survey_timestamp_update.plate_thickness_mm,
+                survey_timestamp_update.fluid_height_mm,
+                survey_timestamp_update.fluid_volume_ul,
             )
-            for note in survey_update.notes:
-                st.warning(note)
-            st.button(
-                "Apply survey values to inputs",
-                type="primary",
-                width="stretch",
-                on_click=_apply_survey_input_update,
-                kwargs={
-                    "update": survey_update,
-                    "fill_input_mode": fill_input_mode,
-                    "survey_token": survey_token,
-                },
-                help=(
-                    "Copies the previewed values into the visible controls. "
-                    "It does not run the acoustic simulation."
-                ),
-            )
-        apply_status = st.session_state.get("_survey_apply_status")
-        if (
-            isinstance(apply_status, dict)
-            and apply_status.get("token") == survey_token
-        ):
-            st.success(str(apply_status["message"]))
+        )
+        with survey_actions_container:
+            with st.container(border=True):
+                st.markdown("**Survey → inputs**")
+                st.caption(
+                    "Choose whether to preserve the conservative survey "
+                    "interpretation or derive the complete stack from echo "
+                    "arrival times. Neither button starts a simulation."
+                )
+                st.markdown("**Survey values**")
+                st.markdown(
+                    f"- **Plate:** {survey_update.plate.id} · "
+                    f"{survey_update.plate_source}\n"
+                    f"- **Water gap:** {water_preview} · "
+                    f"{survey_update.water_source}\n"
+                    f"- **Plate bottom:** {plate_preview} · "
+                    f"{survey_update.plate_thickness_source}\n"
+                    f"- **Filling:** {fill_preview} · "
+                    f"{survey_update.fluid_source}\n"
+                    f"- **Excitation:** {frequency_preview} · "
+                    f"{cycles_preview}"
+                )
+                for note in survey_update.notes:
+                    st.warning(note)
+                st.button(
+                    "Apply survey values to inputs",
+                    width="stretch",
+                    on_click=_apply_survey_input_update,
+                    kwargs={
+                        "update": survey_update,
+                        "fill_input_mode": fill_input_mode,
+                        "survey_token": survey_token,
+                        "status_message": (
+                            "Survey values copied. Review the visible inputs, "
+                            "then select Simulate and optimize focus."
+                        ),
+                    },
+                    help=(
+                        "Preserves the current conservative survey behavior, "
+                        "including the selected Geometry source option."
+                    ),
+                )
+                st.divider()
+                st.markdown("**Approximate geometry from echo timestamps**")
+                st.markdown(
+                    f"- **Water gap:** {timestamp_water_preview}\n"
+                    f"- **Plate bottom:** {timestamp_plate_preview}\n"
+                    f"- **Filling:** {timestamp_fill_preview}"
+                )
+                st.caption(
+                    f"Uses {dmso_percent:g} vol.% DMSO, "
+                    f"{temperature_c:g} °C, and the selected plate sound "
+                    "speed. After applying, the remaining physical assumptions "
+                    "are fluid, temperature, losses, and transducer data."
+                )
+                for note in survey_timestamp_update.notes:
+                    st.warning(note)
+                st.button(
+                    "Calculate all distances from timestamps",
+                    type="primary",
+                    width="stretch",
+                    disabled=not timestamp_geometry_complete,
+                    on_click=_apply_survey_input_update,
+                    kwargs={
+                        "update": survey_timestamp_update,
+                        "fill_input_mode": fill_input_mode,
+                        "survey_token": survey_token,
+                        "copy_excitation": False,
+                        "status_message": (
+                            "Timestamp-derived water gap, plate bottom, and "
+                            "filling copied. These distances are approximate; "
+                            "review fluid, temperature, and transducer inputs "
+                            "before simulation."
+                        ),
+                    },
+                    help=(
+                        "Overwrites all three geometry fields from the three "
+                        "survey echo arrival times using the selected material "
+                        "sound speeds."
+                    ),
+                )
+                apply_status = st.session_state.get("_survey_apply_status")
+                if (
+                    isinstance(apply_status, dict)
+                    and apply_status.get("token") == survey_token
+                ):
+                    st.success(str(apply_status["message"]))
 
     st.divider()
     with st.form("simulation_form"):

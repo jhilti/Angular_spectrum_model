@@ -367,16 +367,30 @@ deriving PP thickness and fluid height only from differences between the three
 echo markers. **Survey metadata · all distances** is available for diagnostics,
 but it also adopts the stored TOF-derived water distance.
 
-After upload, the web interface shows a **Survey → input preview** before it
-changes any field. **Apply survey values to inputs** copies a recognized plate
-ID, stored plate-bottom thickness, DMSO/temperature-corrected fill height and
-estimated µL, plus the recorded excitation frequency and tone length. It then
-returns the geometry source to **Manual geometry**, so the copied values remain
-visible and editable. The button does not run the simulation. By default it
-keeps the manually entered water gap; choose the all-distances mode before
-applying only when the survey's absolute distance is intentionally preferred.
-DMSO concentration, temperature, focus, losses, voltage, and ADC amplitude are
-never inferred or overwritten by this action.
+Directly below the JSON upload, the web interface shows **Survey → inputs**
+before it changes any field. **Apply survey values to inputs** retains the
+existing conservative behavior: it copies the recognized plate, stored
+plate-bottom thickness, DMSO/temperature-corrected filling and estimated µL,
+plus recorded excitation frequency and tone length. By default it keeps the
+manual water gap; the all-distances geometry mode can intentionally adopt the
+stored survey distance.
+
+The second action, **Calculate all distances from timestamps**, ignores every
+stored distance and overwrites the complete geometry from the three echo
+markers:
+
+- water gap = `water sound speed × water–PP time / 2`;
+- plate bottom = `plate sound speed × (PP–liquid − water–PP time) / 2`;
+- filling = `fluid sound speed × (liquid–air − PP–liquid time) / 2`.
+
+It uses the selected DMSO concentration, temperature, and plate sound speed,
+keeps the transducer settings unchanged, and returns the geometry source to
+**Manual geometry** so every calculated value remains visible and editable.
+The absolute water timestamp can contain trigger/electronics, acoustic
+phase-center, and group-delay offsets, so this water gap is explicitly labeled
+approximate. Timestamp differences cancel a common fixed delay but remain
+sensitive to interface picking and reflection phase. Neither survey button
+runs the simulation or treats ADC amplitude as calibrated pressure.
 
 A separate comparison tool provides a detailed analysis of JSON timestamps,
 locally normalized echo shapes, and spectra:
