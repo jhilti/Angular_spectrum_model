@@ -80,13 +80,36 @@ MINIMUM_FILL_HEIGHT_MM = 0.01
 
 COC_DENSITY_KG_M3 = 1020.0
 COC_POISSON_RATIO_ASSUMPTION = 0.40
+APP_STATE_SCHEMA_VERSION = "2026-08-02-survey-plate-id-v1"
+_DERIVED_SESSION_STATE_KEYS = (
+    "simulation_result",
+    "simulation_survey",
+    "geometry_source",
+)
 
 # Streamlit Community Cloud can hot-reload this entrypoint while retaining an
 # older imported project module in the same Python process. Fail clearly before
 # constructing inputs if a deployment ever mixes those two revisions.
+
+
+def _dataclass_has_fields(candidate: type[Any], *required: str) -> bool:
+    """Return whether a possibly stale imported dataclass has every field."""
+
+    available = getattr(candidate, "__dataclass_fields__", {})
+    return all(name in available for name in required)
+
+
 _MODEL_SCHEMA_COMPATIBLE = (
-    "fill_height_uncertainty_mm" in SimulationInputs.__dataclass_fields__
-    and "meniscus_cavity" in InteractiveSimulationResult.__dataclass_fields__
+    _dataclass_has_fields(SimulationInputs, "fill_height_uncertainty_mm")
+    and _dataclass_has_fields(InteractiveSimulationResult, "meniscus_cavity")
+    and _dataclass_has_fields(
+        SurveyPulseEcho,
+        "plate_type_id",
+        "probe_frequency_hz",
+        "tone_length_cycles",
+        "probe_voltage_setting_v",
+    )
+    and hasattr(SurveyPulseEcho, "time_since_excitation_s")
 )
 
 
@@ -149,6 +172,12 @@ if not _MODEL_SCHEMA_COMPATIBLE:
         "Manage app menu; a normal page refresh is not sufficient."
     )
     st.stop()
+if st.session_state.get("_app_state_schema_version") != (
+    APP_STATE_SCHEMA_VERSION
+):
+    for state_key in _DERIVED_SESSION_STATE_KEYS:
+        st.session_state.pop(state_key, None)
+    st.session_state["_app_state_schema_version"] = APP_STATE_SCHEMA_VERSION
 st.markdown(
     """
     <style>
@@ -708,7 +737,12 @@ def parse_uploaded_survey(data: bytes) -> SurveyPulseEcho:
 
 
 @st.cache_data(show_spinner=False, max_entries=12)
-def simulate_cached(inputs: SimulationInputs) -> InteractiveSimulationResult:
+def simulate_cached(
+    inputs: SimulationInputs,
+    schema_version: str,
+) -> InteractiveSimulationResult:
+    if schema_version != APP_STATE_SCHEMA_VERSION:
+        raise ValueError("cached simulation schema version is obsolete")
     return run_interactive_simulation(inputs)
 
 
@@ -2357,7 +2391,10 @@ if submitted:
         with st.spinner(
             "Calculating the broadband echo and searching the focus…"
         ):
-            st.session_state["simulation_result"] = simulate_cached(used_inputs)
+            st.session_state["simulation_result"] = simulate_cached(
+                used_inputs,
+                APP_STATE_SCHEMA_VERSION,
+            )
         st.session_state["simulation_survey"] = survey
         st.session_state["geometry_source"] = geometry_source
     except (ValueError, FloatingPointError) as exc:

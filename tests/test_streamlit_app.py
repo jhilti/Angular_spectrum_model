@@ -1,8 +1,10 @@
 """App-level regression tests for the interactive Streamlit flow."""
 
+from dataclasses import dataclass
 import json
 from pathlib import Path
 
+import angular_spectrum
 import pytest
 
 from angular_spectrum import dmso_water_properties
@@ -71,6 +73,28 @@ def _selectbox(app: AppTest, label: str):
 
 def _button(app: AppTest, label: str):
     return next(item for item in app.button if item.label == label)
+
+
+def test_mixed_survey_schema_stops_with_reboot_guidance(monkeypatch) -> None:
+    @dataclass(frozen=True)
+    class LegacySurveyPulseEcho:
+        """Minimal pre-plate-ID schema retained by a hot-reloaded process."""
+
+        probe_frequency_hz: float | None = None
+        tone_length_cycles: float | None = None
+        probe_voltage_setting_v: float | None = None
+
+    monkeypatch.setattr(
+        angular_spectrum,
+        "SurveyPulseEcho",
+        LegacySurveyPulseEcho,
+    )
+    app = AppTest.from_file(str(APP_PATH), default_timeout=180).run()
+
+    assert not app.exception
+    assert any(
+        "different deployment revisions" in item.value for item in app.error
+    )
 
 
 def test_first_load_shows_labware_and_estimated_stack_preview() -> None:
