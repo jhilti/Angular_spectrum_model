@@ -419,6 +419,43 @@ spectrum, and relative envelope peaks are therefore qualitative diagnostic
 metrics, not an absolute pressure calibration. Plots derived from raw data are
 stored under `results/private/` and ignored by Git.
 
+### Probe-z sweep cross-check
+
+A directory containing a `tof_z_offset_summary.json` plus one survey JSON per
+probe position can be evaluated as one coherent focus scan:
+
+```bash
+python examples/tof_z_offset_comparison.py tof_z_offset_results \
+  --dmso-percent 80 \
+  --temperature-c 22
+```
+
+The batch analysis preserves one relative ADC scale across all positions,
+checks that frequency, tone length, voltage setting, plate, well, and sampling
+remain constant, and uses one common PP thickness and liquid round-trip delay.
+It runs a complete monostatic broadband pulse-echo model at every z position.
+One bounded waveform correction is estimated from the z=0 water–PP echo and
+then applied unchanged to every simulated trace, preserving their modeled
+relative variation over z. The nominal scan geometry is
+`base water path - z offset`; by default `focal_distance_mm` in the sweep
+summary is treated as the z=0 base path and should be checked against the
+actual stage datum. Pass `--base-water-path-mm` when an independent gap is
+available. Stored survey distances are not used as independent geometry
+because they are calculated from absolute echo timing and an assumed sound
+speed. The reported optimum z offset shifts one-for-one with this base-gap
+input, so datum uncertainty must not be confused with focus-model precision.
+
+The generated timing, response, and waveform plot plus CSV and JSON metrics are
+written under `results/private/tof_z_offset/`. The plots distinguish the
+survey detector's positive amplitude estimates, modeled monostatic pulse
+returns, and the on-axis single-pass intensity focus proxy. Fluid identity and
+temperature remain hypotheses, and ADC amplitudes remain qualitative. In the
+current dataset, the small set of separately normalized points does not cross
+the meniscus maximum, so it cannot validate concentration, absolute gain, or
+the exact focus. The raw
+`tof_z_offset_results/` directory is ignored by Git because it can contain
+device addresses, timestamps, encoder positions, and full ADC records.
+
 For an ideal phase-conjugate aperture optimized independently at every height,
 the CW forward intensity directly below the DMSO–air interface can be evaluated
 over a fill-height range from 2 to 3 mm:
