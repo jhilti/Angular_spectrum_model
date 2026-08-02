@@ -19,6 +19,11 @@ G. S. Kell, "Density, Thermal Expansivity, and Compressibility of Liquid Water
 from 0 deg to 150 deg C", Journal of Chemical & Engineering Data 20 (1975),
 97-105. https://doi.org/10.1021/je60064a005
 
+Dynamic viscosity and liquid/air surface tension are supplied by the
+companion :mod:`angular_spectrum.dmso_transport` module.  Those properties
+come from independent measured concentration series and are returned on the
+same composition and temperature basis as the acoustic properties.
+
 Composition interpolation is performed in DMSO mole fraction at each measured
 temperature, followed by linear temperature interpolation. The pure-water
 table endpoints are anchored to the Marczak/Kell correlations so the mixture
@@ -33,6 +38,11 @@ from typing import Literal
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
+
+from .dmso_transport import (
+    dynamic_viscosity_from_mole_fraction_pa_s,
+    surface_tension_from_mole_fraction_n_m,
+)
 
 
 ConcentrationBasis = Literal["volume", "mass", "mole"]
@@ -80,7 +90,7 @@ _DATA_40C = np.array(
 
 @dataclass(frozen=True)
 class DMSOWaterProperties:
-    """Interpolated acoustic properties for a DMSO/water mixture."""
+    """Interpolated acoustic and free-surface properties of DMSO/water."""
 
     dmso_fraction: float
     basis: ConcentrationBasis
@@ -88,6 +98,9 @@ class DMSOWaterProperties:
     dmso_mole_fraction: float
     density_kg_m3: float
     sound_speed_m_s: float
+    dynamic_viscosity_pa_s: float
+    surface_tension_n_m: float
+    surface_tension_temperature_extrapolated: bool
 
 
 @dataclass(frozen=True)
@@ -193,13 +206,32 @@ def dmso_water_properties(
     basis: ConcentrationBasis = "volume",
     temperature_c: float = 22.0,
 ) -> DMSOWaterProperties:
-    """Interpolate density and speed of sound for a DMSO/water mixture."""
+    """Return acoustic, viscosity, and surface-tension mixture properties.
+
+    Surface tension at 20 to below 25 degC is extrapolated from measurements
+    at 25--55 degC and is explicitly identified by
+    ``surface_tension_temperature_extrapolated``.  At exactly zero DMSO the
+    IAPWS pure-water correlation is used directly and no extrapolation flag is
+    set.
+    """
 
     if not np.isfinite(temperature_c) or not 20.0 <= temperature_c <= 40.0:
         raise ValueError("temperature_c must lie between 20 and 40 degC")
     fraction = float(_validate_fraction(dmso_fraction))
+    mole_fraction = float(
+        dmso_concentration_to_mole_fraction(
+            fraction, basis=basis, temperature_c=temperature_c
+        )
+    )
     if fraction == 0.0:
         pure_water = water_properties(temperature_c)
+        dynamic_viscosity = dynamic_viscosity_from_mole_fraction_pa_s(
+            0.0,
+            temperature_c,
+        )
+        surface_tension, surface_tension_extrapolated = (
+            surface_tension_from_mole_fraction_n_m(0.0, temperature_c)
+        )
         return DMSOWaterProperties(
             dmso_fraction=0.0,
             basis=basis,
@@ -207,12 +239,12 @@ def dmso_water_properties(
             dmso_mole_fraction=0.0,
             density_kg_m3=pure_water.density_kg_m3,
             sound_speed_m_s=pure_water.sound_speed_m_s,
+            dynamic_viscosity_pa_s=dynamic_viscosity,
+            surface_tension_n_m=surface_tension,
+            surface_tension_temperature_extrapolated=(
+                surface_tension_extrapolated
+            ),
         )
-    mole_fraction = float(
-        dmso_concentration_to_mole_fraction(
-            fraction, basis=basis, temperature_c=temperature_c
-        )
-    )
     temperature_weight = (temperature_c - 20.0) / 20.0
     composition_grid = np.union1d(_DATA_20C[:, 0], _DATA_40C[:, 0])
     density_20_grid = np.interp(
@@ -249,6 +281,16 @@ def dmso_water_properties(
     speed_data[0] = _water_sound_speed_m_s(temperature_c)
     density = np.interp(mole_fraction, composition_grid, density_data)
     speed = np.interp(mole_fraction, composition_grid, speed_data)
+    dynamic_viscosity = dynamic_viscosity_from_mole_fraction_pa_s(
+        mole_fraction,
+        temperature_c,
+    )
+    surface_tension, surface_tension_extrapolated = (
+        surface_tension_from_mole_fraction_n_m(
+            mole_fraction,
+            temperature_c,
+        )
+    )
     return DMSOWaterProperties(
         dmso_fraction=fraction,
         basis=basis,
@@ -256,7 +298,72 @@ def dmso_water_properties(
         dmso_mole_fraction=mole_fraction,
         density_kg_m3=float(density * 1000.0),
         sound_speed_m_s=float(speed),
+        dynamic_viscosity_pa_s=dynamic_viscosity,
+        surface_tension_n_m=surface_tension,
+        surface_tension_temperature_extrapolated=(
+            surface_tension_extrapolated
+        ),
     )
+
+
+def dmso_water_dynamic_viscosity_pa_s(
+    dmso_fraction: float,
+    *,
+    basis: ConcentrationBasis = "volume",
+    temperature_c: float = 22.0,
+) -> float:
+    """Return measured/interpolated dynamic viscosity in Pa s.
+
+    The source isotherms are at 20, 30, and 40 degC.  No temperature
+    extrapolation is permitted.
+    """
+
+    if not np.isfinite(temperature_c) or not 20.0 <= temperature_c <= 40.0:
+        raise ValueError("temperature_c must lie between 20 and 40 degC")
+    fraction = float(_validate_fraction(dmso_fraction))
+    mole_fraction = float(
+        dmso_concentration_to_mole_fraction(
+            fraction,
+            basis=basis,
+            temperature_c=temperature_c,
+        )
+    )
+    return dynamic_viscosity_from_mole_fraction_pa_s(
+        mole_fraction,
+        temperature_c,
+    )
+
+
+def dmso_water_surface_tension_n_m(
+    dmso_fraction: float,
+    *,
+    basis: ConcentrationBasis = "volume",
+    temperature_c: float = 22.0,
+) -> float:
+    """Return DMSO/water liquid/air surface tension in N/m.
+
+    Measurements cover 25--55 degC.  Values at 20 to below 25 degC are a
+    continuity-preserving short extrapolation, except for pure water, which
+    uses IAPWS directly.  Volume-basis conversion remains limited to 20--40
+    degC because its neat-component density model is only validated there;
+    mole and mass basis may use the full 20--55 degC surface-tension range.
+    """
+
+    if not np.isfinite(temperature_c) or not 20.0 <= temperature_c <= 55.0:
+        raise ValueError("temperature_c must lie between 20 and 55 degC")
+    fraction = float(_validate_fraction(dmso_fraction))
+    mole_fraction = float(
+        dmso_concentration_to_mole_fraction(
+            fraction,
+            basis=basis,
+            temperature_c=temperature_c,
+        )
+    )
+    surface_tension, _ = surface_tension_from_mole_fraction_n_m(
+        mole_fraction,
+        temperature_c,
+    )
+    return surface_tension
 
 
 def water_properties(temperature_c: float = 22.0) -> WaterProperties:

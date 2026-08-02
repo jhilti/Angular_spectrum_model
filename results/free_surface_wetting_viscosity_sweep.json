@@ -1,0 +1,139 @@
+{
+  "model_scope": "linearized one-way pre-ejection free-surface sensitivity",
+  "can_predict_detached_drop_volume": false,
+  "forcing_has_absolute_calibration": false,
+  "input": {
+    "frequency_hz": 10000000.0,
+    "cycles": 150.0,
+    "incident_peak_pressure_pa": 800000.0,
+    "liquid_depth_m": 0.00422,
+    "well_radius_m": 0.00165,
+    "baseline_dynamic_viscosity_pa_s": 0.0036926120015265533,
+    "baseline_surface_tension_n_m": 0.04869850470016735,
+    "baseline_surface_tension_temperature_extrapolated": true,
+    "viscosity_values_pa_s": [
+      0.001,
+      0.0036926120015265533,
+      0.005
+    ],
+    "surface_tension_values_n_m": [
+      0.035,
+      0.04869850470016735,
+      0.055
+    ],
+    "wetting_angles_deg": [
+      60.0,
+      90.0,
+      120.0
+    ],
+    "dynamic_wetting_angles_deg": [
+      75.0,
+      90.0,
+      105.0
+    ],
+    "contact_line_mode": "fixed_contact_angle",
+    "sensitivity_bracket_values_are_measured": false
+  },
+  "cases": [
+    {
+      "family": "viscosity",
+      "case": "0.001",
+      "peak_apex_displacement_um": 2.672577540714758,
+      "peak_positive_mound_volume_pl": 424.29656558549766,
+      "maximum_dynamic_abs_slope": 0.013563635285462838,
+      "maximum_retained_mode_damping_ratio": 0.05943839778110664,
+      "within_reduced_model_validity": true,
+      "frozen_acoustic_feedback_likely": false
+    },
+    {
+      "family": "viscosity",
+      "case": "0.0036926120015265533",
+      "peak_apex_displacement_um": 2.482742905753374,
+      "peak_positive_mound_volume_pl": 398.1161680861311,
+      "maximum_dynamic_abs_slope": 0.012283932403741853,
+      "maximum_retained_mode_damping_ratio": 0.21948294099802362,
+      "within_reduced_model_validity": false,
+      "frozen_acoustic_feedback_likely": false
+    },
+    {
+      "family": "viscosity",
+      "case": "0.005",
+      "peak_apex_displacement_um": 2.401032619441167,
+      "peak_positive_mound_volume_pl": 386.7999281833679,
+      "maximum_dynamic_abs_slope": 0.01174812798622538,
+      "maximum_retained_mode_damping_ratio": 0.2971919889055332,
+      "within_reduced_model_validity": false,
+      "frozen_acoustic_feedback_likely": false
+    },
+    {
+      "family": "surface_tension",
+      "case": "0.035",
+      "peak_apex_displacement_um": 2.878242895989284,
+      "peak_positive_mound_volume_pl": 408.46146442184966,
+      "maximum_dynamic_abs_slope": 0.014161715195354009,
+      "maximum_retained_mode_damping_ratio": 0.2588905285790827,
+      "within_reduced_model_validity": false,
+      "frozen_acoustic_feedback_likely": false
+    },
+    {
+      "family": "surface_tension",
+      "case": "0.04869850470016735",
+      "peak_apex_displacement_um": 2.482742905753374,
+      "peak_positive_mound_volume_pl": 398.1161680861311,
+      "maximum_dynamic_abs_slope": 0.012283932403741853,
+      "maximum_retained_mode_damping_ratio": 0.21948294099802362,
+      "within_reduced_model_validity": false,
+      "frozen_acoustic_feedback_likely": false
+    },
+    {
+      "family": "surface_tension",
+      "case": "0.055",
+      "peak_apex_displacement_um": 2.349681196498762,
+      "peak_positive_mound_volume_pl": 394.01844167096874,
+      "maximum_dynamic_abs_slope": 0.01164721984565395,
+      "maximum_retained_mode_damping_ratio": 0.20652836091292562,
+      "within_reduced_model_validity": false,
+      "frozen_acoustic_feedback_likely": false
+    },
+    {
+      "family": "wetting_angle",
+      "case": "75.0",
+      "peak_apex_displacement_um": 2.482742905753374,
+      "peak_positive_mound_volume_pl": 398.1161680861311,
+      "maximum_dynamic_abs_slope": 0.012283932403741853,
+      "maximum_retained_mode_damping_ratio": 0.21948294099802362,
+      "within_reduced_model_validity": false,
+      "frozen_acoustic_feedback_likely": true
+    },
+    {
+      "family": "wetting_angle",
+      "case": "90.0",
+      "peak_apex_displacement_um": 2.482742905753374,
+      "peak_positive_mound_volume_pl": 398.1161680861311,
+      "maximum_dynamic_abs_slope": 0.012283932403741853,
+      "maximum_retained_mode_damping_ratio": 0.21948294099802362,
+      "within_reduced_model_validity": false,
+      "frozen_acoustic_feedback_likely": false
+    },
+    {
+      "family": "wetting_angle",
+      "case": "105.0",
+      "peak_apex_displacement_um": 2.482742905753374,
+      "peak_positive_mound_volume_pl": 398.1161680861311,
+      "maximum_dynamic_abs_slope": 0.012283932403741853,
+      "maximum_retained_mode_damping_ratio": 0.21948294099802362,
+      "within_reduced_model_validity": false,
+      "frozen_acoustic_feedback_likely": true
+    }
+  ],
+  "shared_limitations": [
+    "linearized one-way capillary-gravity dynamics with a frozen acoustic field",
+    "single-valued axisymmetric surface; no overturning, pinch-off, detached drop, or satellites",
+    "positive_mound_volume_m3 is displaced mound volume, not droplet volume",
+    "weak-viscosity modal damping omits wall/bottom boundary layers and viscoelastic effects",
+    "dynamic modal operator is flat and contact-angle independent; wetting changes only the static baseline",
+    "no acoustic streaming, cavitation, thermal accumulation, or contact-angle hysteresis",
+    "normal-stress amplitude was not asserted to have absolute calibration",
+    "at least one materially participating mode exceeds the weak-viscosity damping-ratio limit"
+  ]
+}

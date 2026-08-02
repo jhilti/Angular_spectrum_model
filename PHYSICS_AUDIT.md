@@ -8,11 +8,14 @@ propagation model**. The repository can model relative focal position, spatial
 pressure shape, interface timing, and elastic-PP transmission. It supports a
 calibrated linear pulse-echo chain only after independent bench validation.
 
-It is **not** a first-principles acoustic droplet-ejection (ADE) solver. It does
-not yet solve free-surface deformation, jet formation, pinch-off, satellites,
-streaming, cavitation, heating, or nonlinear propagation. Consequently, it
-must not turn an uncalibrated ADC count or a pulser voltage setting directly
-into a predicted drop volume or ejection threshold.
+It is **not** a first-principles acoustic droplet-ejection (ADE) solver. The
+optional `free_surface` module now solves a one-way, linearized, axisymmetric
+pre-ejection mound response about a nonlinear static wetting equilibrium. It
+does not solve interface overturning, jet formation, pinch-off, detached
+drops, satellites, streaming, cavitation, heating, nonlinear propagation, or
+feedback from the moving meniscus into the acoustic cavity. Consequently, the
+repository must not turn an uncalibrated ADC count or a pulser voltage setting
+directly into a predicted drop volume or ejection threshold.
 
 The core propagation convention was checked independently:
 
@@ -35,6 +38,7 @@ The band-limited propagation follows the numerical principle described by
 | Correction | Why it matters |
 |---|---|
 | Temperature-dependent water density and sound speed | The old interface timing and water-path phase were wrong away from 22 °C; at 40 °C the 25.3 mm round trip was late by about 0.9 µs. The mixture interpolation is now continuous at zero DMSO. |
+| Composition-dependent DMSO viscosity and surface tension | The optional free-surface examples no longer use one arbitrary hydrodynamic pair for every mixture. Viscosity is interpolated from measured 20/30/40 °C isotherms; surface tension is interpolated from 112 measured 25--55 °C points with an explicit flag for the short 20--25 °C extrapolation. |
 | Correct paraxial refraction ratios | The old estimate inverted sound-speed ratios. For the 80% DMSO example with a 20 mm water gap, it estimated 5.46 mm after PP instead of the correct 3.62 mm ray estimate. |
 | Meniscus intensity retains aperture pressure | Doubling configured aperture pressure now produces four times the reported W/m² instead of no change. |
 | Correct layered and two-way angular-spectrum support | Cumulative lateral walkoff is checked across the complete layered path, rather than checking water and liquid independently. Bundled pulse-echo grids were widened accordingly. |
@@ -79,6 +83,8 @@ and a 4.22 mm liquid layer, the linear screening calculation gives:
 | Quantity | Value | Interpretation |
 |---|---:|---|
 | DMSO-mixture sound speed | 1632.0 m/s | Literature interpolation, not a sample measurement |
+| Dynamic viscosity | 3.693 mPa·s | Literature interpolation; actual hygroscopic sample should be measured |
+| Liquid/air surface tension | 48.699 mN/m | 3 K extrapolation below the measured mixture range, explicitly flagged |
 | Wavelength | 163.2 µm | Acoustic length scale in the liquid |
 | F-number | 1.954 | Moderately focused aperture |
 | Homogeneous `1.02 F# lambda` intensity-FWHM proxy | 0.325 mm | Ignores layered refraction |
@@ -107,6 +113,42 @@ calculated CW interference contribution spans about −0.72 to +0.60 dB with a
 dominant 0.0835 mm period. Meniscus curvature, loss, and a fixed single-element
 focus can reduce or shift those fringes.
 
+## Scope of the optional free-surface module
+
+`src/angular_spectrum/free_surface.py` provides a deliberately opt-in
+jet-precursor calculation. It receives cycle-averaged normal radiation stress
+from a calibrated incident field. It must not be driven with the raw MHz
+carrier or the nearly zero total first-order pressure at a pressure-release
+surface. For ideal reflection, a peak-pressure envelope is converted with
+
+\[
+q=\frac{|p_\mathrm{inc}|^2}{\rho c^2}.
+\]
+
+The static profile solves the nonlinear axisymmetric Young–Laplace equilibrium
+with gravity, a volume constraint, surface tension, and equilibrium contact
+angle. The transient perturbation uses volume-conserving circular-well modes,
+the finite-depth capillary–gravity dispersion relation, and the weak-viscosity
+amplitude decay rate $2\nu k^2$. Fixed-angle and pinned-contact-line
+perturbations are distinguished, but only the fixed-angle case is currently
+enabled; the pinned case needs a coupled rigid-wall fluid constraint. The
+result reports deformation, normal velocity,
+curvature, energy, displaced positive mound volume, and checks for excessive
+slope, weak-viscosity breakdown, and likely moving-surface acoustic feedback.
+
+This implements a weak-viscosity, small-deformation limit relevant to the
+surface responses studied by
+[Issenmann et al.](https://doi.org/10.1017/jfm.2011.236) and to the low-energy
+acoustic mound timing reported by
+[Cinbis et al.](https://doi.org/10.1121/1.407456). It cannot cross the topology
+change into a detached drop. `positive_mound_volume_m3` is therefore not a
+drop-volume prediction. The free-surface examples now use composition- and
+temperature-dependent viscosity and surface tension, but the default pressure
+and contact angle remain provisional. At 80 vol.% and 22 °C, the imported
+viscosity also causes materially participating modes to exceed the present
+weak-viscosity validity limit. A quantitatively predictive extension needs a
+finite-viscosity model including wall and bottom boundary layers.
+
 ## Recommended real-device workflow
 
 ### 1. Establish geometry and material properties
@@ -118,10 +160,14 @@ focus can reduce or shift those fringes.
 3. Record temperature at every acquisition. Measure the actual mixture sound
    speed and density if concentration accuracy matters; DMSO/water properties
    are nonlinear in concentration and DMSO is hygroscopic.
-4. Measure viscosity and surface tension at the actual concentration and
-   temperature. Record wetting/contact angle, static meniscus curvature, and
-   dissolved-gas/degassing protocol; these govern jetting, satellites, and
-   cavitation but are absent from the linear solver.
+4. Use the literature viscosity and surface-tension functions for screening,
+   then measure both at the actual concentration and temperature before an
+   absolute comparison. Record wetting/contact angle, static meniscus
+   curvature, and dissolved-gas/degassing protocol. DMSO water uptake and
+   contamination can shift all of these. The optional pre-ejection surface
+   module consumes the first three quantities; dynamic wetting hysteresis,
+   finite-viscosity wall/bottom losses, jetting, satellites, and cavitation
+   remain outside it.
 5. Measure PP density, longitudinal speed, shear speed, and frequency-dependent
    attenuation. Extruded PP can be anisotropic and viscoelastic, whereas this
    solver currently assumes a homogeneous isotropic plate.
@@ -248,8 +294,9 @@ than deriving performance from voltage alone
 6. **Ejection gate:** a repeatable measured window exists between first-drop
    threshold and satellite/spray threshold.
 
-Only after these gates should the repository's linear field be coupled to a
-transient axisymmetric free-surface solver **if the measured geometry and
-wetting are genuinely axisymmetric** (compressible acoustics or a
-validated radiation-stress boundary condition plus Navier–Stokes, gravity,
-viscosity, and surface tension) to predict mound growth and pinch-off.
+Only after these gates should the repository's linear field be coupled to the
+optional transient free-surface module, and only if the measured geometry and
+wetting are genuinely axisymmetric. It can then screen sub-threshold mound
+growth and recovery. Predicting pinch-off and detached volume still requires a
+validated moving-boundary/two-phase Navier–Stokes or equivalent solver with
+gravity, viscosity, surface tension, dynamic wetting, and acoustic feedback.

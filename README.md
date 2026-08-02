@@ -184,6 +184,31 @@ Pure-water sound speed uses the continuous Marczak correlation
 atmospheric-pressure Kell correlation
 ([Kell, 1975](https://doi.org/10.1021/je60064a005)).
 
+The same `DMSOWaterProperties` result now also contains dynamic viscosity and
+liquid/air surface tension. Viscosity uses the measured 20, 30, and 40 °C
+isotherms of
+[Omota et al. (2008)](https://revroum.lew.ro/wp-content/uploads/2008/RRCh_11_2008/Art%2001.pdf).
+Surface tension uses the 112 DMSO/water measurements at 25--55 °C from
+[Markarian and Terzyan](https://doi.org/10.1021/je7001013), as distributed in
+the authoritative [NIST ThermoML record](https://trc.nist.gov/ThermoML/10.1021/je7001013.html),
+with the missing pure-water endpoint supplied by
+[IAPWS R1-76(2014)](https://www.iapws.org/relguide/Surf-H2O.html).
+At the default 22 °C, mixture surface tension is a continuity-preserving 3 K
+extrapolation below the measured range and the returned
+`surface_tension_temperature_extrapolated` flag is `True`.
+
+| DMSO [vol.%] at 22 °C | Dynamic viscosity [mPa·s] | Surface tension [mN/m] |
+|---:|---:|---:|
+| 70 | 4.048 | 52.700 |
+| 80 | 3.693 | 48.699 |
+| 90 | 2.914 | 44.512 |
+| 100 | 2.135 | 42.077 |
+
+Volume percentages are converted using the neat-component volumes before
+mixing. If a laboratory concentration is defined against the final contracted
+solution volume, the conversion remains an approximation and should be
+replaced by a measured composition.
+
 A monostatic pulse-echo example uses the same focused transducer first as the
 transmitter and then as the microphone. It simulates a positive-going
 single-cycle 10 MHz pulse through 25.3 mm of water, 0.78 mm of PP, and 4.22 mm
@@ -406,6 +431,131 @@ Ejection threshold, volume, velocity, satellites, cavitation, and heating need
 absolute calibration and free-surface measurements. Follow the staged workflow
 in [PHYSICS_AUDIT.md](PHYSICS_AUDIT.md) before extrapolating from voltage.
 
+## Optional transient free-surface response
+
+The library now includes a separate, opt-in axisymmetric model for the
+**sub-threshold mound and capillary-wave response**. It is not called or
+exposed by the Streamlit application and does not change any existing
+simulation or default.
+The hydrodynamic input is a slowly varying upward normal radiation stress—not
+the raw 10 MHz carrier and not the nearly zero total acoustic pressure at a
+liquid–air pressure-release boundary.
+
+The model includes:
+
+- nonlinear static Young–Laplace equilibrium with gravity, volume conservation,
+  surface tension, and a measured equilibrium contact angle;
+- fixed-contact-angle perturbations in a circular well; a pinned contact line
+  is deliberately rejected until its coupled rigid-wall fluid constraint is
+  implemented;
+- finite-depth axisymmetric capillary–gravity modes;
+- dynamic viscosity through the weak-viscosity modal decay rate;
+- transient average-acceleration Newmark integration;
+- surface elevation, velocity, curvature, displaced mound volume, mechanical
+  energy, acoustic work, and explicit validity flags.
+
+For an ideal reflecting free surface, a calibrated incident peak-pressure
+envelope is converted to radiation stress with
+
+\[
+q(r,t)=\frac{|p_\mathrm{inc}(r,t)|^2}{\rho c^2}.
+\]
+
+Run the 150-cycle example with:
+
+```bash
+python examples/free_surface_150_cycle_mound.py
+```
+
+[![Transient pre-ejection mound response to an illustrative 150-cycle tone burst](results/free_surface_150_cycle_mound.png)](results/free_surface_150_cycle_mound.png)
+
+Sweep the tone length at fixed focal pressure with:
+
+```bash
+python examples/free_surface_tone_length_sweep.py
+```
+
+[![Maximum pre-ejection mound height versus tone length](results/free_surface_tone_length_sweep.png)](results/free_surface_tone_length_sweep.png)
+
+The default sweep covers 10–300 cycles and searches for the maximum apex
+elevation through an equal 600 µs interval after every burst. At the
+illustrative 1 MPa pressure scale, the 150-cycle case reaches approximately
+4.04 µm above the equilibrium meniscus, about 173 µs after the tone ends.
+The measured-property baseline has 3.69 mPa·s viscosity and all tone-length
+cases are therefore marked because at least one materially participating mode
+exceeds the solver's weak-viscosity damping-ratio limit. The 300-cycle case
+also reaches the moving-surface acoustic-feedback flag.
+The nearly linear trend is not an ejection optimum: transducer ring-up and
+finite liquid-cavity build-up are deliberately absent from this sweep.
+
+At a fixed 150-cycle tone length, sweep 70–100 vol.% DMSO with:
+
+```bash
+python examples/free_surface_dmso_concentration_sweep.py
+```
+
+[![Maximum pre-ejection mound height versus DMSO concentration at 150 cycles](results/free_surface_dmso_concentration_sweep.png)](results/free_surface_dmso_concentration_sweep.png)
+
+This comparison uses one common aperture-pressure scale, chosen so the 80%
+case has an illustrative 1 MPa incident pressure on axis at the meniscus.
+Every concentration therefore retains its own PP transmission, refracted
+focus, focal spot, density, sound speed, viscosity, surface tension, and
+radiation stress. It is not renormalized independently. The plot also contains
+a control calculation with viscosity and surface tension held at their 80%
+values, isolating the incremental transport-property contribution.
+
+In this single-pass baseline, the concentration-dependent curve rises from
+about 3.78 µm at 70% through 4.04 µm at 80% to 4.62 µm at 100%; the virtual
+focus crosses the 4.22 mm meniscus near 83%. Relative to the fixed-transport
+control, viscosity and surface tension change the result by about -4.4% at
+70% and +12.4% at 100%. Cases through 91% trigger the weak-viscosity validity
+flag, so these values are sensitivity estimates rather than validity-cleared
+predictions. Surface tension at 22 °C is additionally the flagged 3 K
+extrapolation described above.
+
+Wetting angle and liquid attenuation remain fixed across concentration. This
+is especially important because a 150-cycle burst contains approximately
+three liquid-cavity round trips, while the current forcing omits their
+coherent build-up.
+
+The default 1 MPa incident pressure and contact angle are explicitly
+illustrative. The radial load shape comes from the
+existing single-pass angular-spectrum field at the meniscus and is scaled to
+that supplied peak pressure; finite cavity build-up is not yet included in
+this example. After a traceable field calibration, use for example:
+
+```bash
+python examples/free_surface_150_cycle_mound.py \
+  --incident-pressure-mpa 1.35 \
+  --absolute-calibration
+```
+
+Compare viscosity, surface tension, and static wetting-angle assumptions with:
+
+```bash
+python examples/free_surface_wetting_viscosity_sweep.py
+```
+
+All four examples write PNG, CSV, and JSON results; the full 150-cycle field
+is also stored as a compressed NumPy archive. The quantity named
+`positive_mound_volume_m3` is liquid displaced above the equilibrium plane; it
+is deliberately **not** called droplet volume. The surface remains a
+single-valued graph, so overturning, jet formation, pinch-off, satellites, and
+spray are outside the model. Those require a validated moving-boundary
+two-phase Navier–Stokes or equivalent solver. The formulation uses the
+weak-viscosity, small-deformation limit motivated by the experiments and
+analysis of
+[Issenmann et al.](https://doi.org/10.1017/jfm.2011.236) and the ADE mound
+measurements of [Cinbis et al.](https://doi.org/10.1121/1.407456); it must not
+be extrapolated into the breakup regimes observed by
+[Tomita et al.](https://doi.org/10.1063/1.4895902).
+
+The nonlinear static wetting profile is retained in the reported geometry,
+but the transient modal dispersion is linearized about a flat surface. A
+validity flag is raised when the static or dynamic slope becomes too large,
+when the weak-viscosity approximation fails, or when the deformation is large
+enough that frozen acoustic-cavity feedback is doubtful.
+
 ## Important parameters that still require measurement
 
 Only the longitudinal PP sound speed was measured in the shared setup.
@@ -468,6 +618,10 @@ dmso_data = dmso_water_properties(
     basis="volume",
     temperature_c=22.0,
 )
+# Hydrodynamic inputs are available from the same composition conversion.
+print(dmso_data.dynamic_viscosity_pa_s)
+print(dmso_data.surface_tension_n_m)
+print(dmso_data.surface_tension_temperature_extrapolated)
 dmso = Fluid(
     "DMSO_22C",
     dmso_data.density_kg_m3,
@@ -518,6 +672,8 @@ Included:
 - Optional time-domain reconstruction of a broadband pulse
 - Optional Thevenin/BVD terminal model and calibrated Pa/V-to-V/Pa pulse-echo
   wrapper
+- Optional one-way, linearized axisymmetric pre-ejection surface response with
+  nonlinear static wetting equilibrium, viscosity, gravity, and surface tension
 
 Not included:
 
@@ -525,8 +681,9 @@ Not included:
 - Finite lateral dimensions or tilt of the PP plate
 - Surface roughness, adhesive layers, air bubbles, or additional layers
 - Nonlinearity at high acoustic pressures
-- Meniscus deformation, acoustic streaming, capillary jets, pinch-off,
-  satellites, cavitation, and thermal accumulation
+- Large or overturning meniscus deformation, acoustic streaming, capillary
+  jets, pinch-off, detached droplets, satellites, cavitation, and thermal
+  accumulation
 - A probe-specific KLM or Mason stack derived from piezoelectric, matching-layer,
   backing, lens, and housing material constants
 - Causal broadband dispersion associated with attenuation; the current
@@ -566,3 +723,6 @@ The tests cover, in particular:
 - The time convention used for pulse reconstruction
 - Temperature-consistent water timing, two-way propagation masks, explicit
   receive loading, meniscus pressure scaling, and ADE screening scales
+- Young–Laplace wetting equilibrium, radial capillary eigenfrequency,
+  radiation-stress pressure-squared scaling, viscous modal decay, explicit
+  pinned-mode rejection, and free-surface volume conservation

@@ -1,0 +1,112 @@
+{
+  "model_scope": "single-pass acoustic concentration sensitivity coupled to a linearized one-way pre-ejection free-surface response",
+  "can_predict_detached_drop_volume": false,
+  "input": {
+    "frequency_hz": 10000000.0,
+    "cycles": 150.0,
+    "tone_duration_s": 1.5e-05,
+    "temperature_c": 22.0,
+    "liquid_depth_m": 0.00422,
+    "water_path_m": 0.0191,
+    "pp_thickness_m": 0.00078,
+    "reference_dmso_volume_percent": 80.0,
+    "reference_incident_meniscus_pressure_pa": 1000000.0,
+    "reference_pressure_has_absolute_calibration": false,
+    "common_aperture_pressure_scale": 28442.11774833092,
+    "finite_cavity_build_up_in_forcing": false,
+    "transport_property_model": {
+      "dynamic_viscosity": "Omota et al. measured 20/30/40 degC isotherms",
+      "surface_tension": "Markarian and Terzyan / NIST ThermoML measured 25--55 degC isotherms",
+      "surface_tension_temperature_extrapolated": true
+    },
+    "fixed_transport_control": {
+      "reference_dmso_volume_percent": 80.0,
+      "dynamic_viscosity_pa_s": 0.0036926120015265533,
+      "surface_tension_n_m": 0.04869850470016735
+    },
+    "fixed_equilibrium_contact_angle_deg": 90.0,
+    "composition_dependent_hydrodynamic_properties_available": true
+  },
+  "output": {
+    "largest_peak_dmso_volume_percent": 100.0,
+    "largest_peak_apex_height_m": 4.623877586895816e-06,
+    "nearest_80_percent_case": {
+      "dmso_volume_percent": 80.0,
+      "dmso_mole_fraction": 0.5037752945507478,
+      "density_kg_m3": 1100.9878219368031,
+      "sound_speed_m_s": 1631.9958165935382,
+      "dynamic_viscosity_mpa_s": 3.692612001526553,
+      "surface_tension_mn_m": 48.69850470016735,
+      "surface_tension_temperature_extrapolated": true,
+      "half_wavelength_um": 81.5997908296769,
+      "liquid_cavity_round_trip_us": 5.171581884086441,
+      "focus_after_pp_mm": 4.1644861215845905,
+      "focus_below_meniscus_mm": 0.05551387841540908,
+      "focus_scan_boundary_limited": false,
+      "incident_peak_pressure_at_meniscus_mpa": 1.0,
+      "focal_intensity_fwhm_diameter_mm": 0.3050186269231162,
+      "peak_apex_height_um": 4.040923857782682,
+      "peak_apex_height_fixed_80pct_transport_um": 4.040923857782682,
+      "transport_property_effect_percent": 0.0,
+      "peak_during_burst_um": 0.30904052699077306,
+      "apex_at_burst_end_um": 0.30904052699077306,
+      "peak_time_us": 188.4,
+      "peak_delay_after_burst_us": 173.39999999999998,
+      "peak_is_window_clipped": false,
+      "peak_positive_mound_volume_pl": 898.3849049647204,
+      "within_reduced_model_validity": false,
+      "peak_apex_height_relative_to_nearest_80pct": 1.0
+    },
+    "all_cases_within_reduced_model_validity": false,
+    "any_peak_at_observation_boundary": false,
+    "invalid_dmso_volume_percent": [
+      70.0,
+      71.0,
+      72.0,
+      73.0,
+      74.0,
+      75.0,
+      76.0,
+      77.0,
+      78.0,
+      79.0,
+      80.0,
+      81.0,
+      82.0,
+      83.0,
+      84.0,
+      85.0,
+      86.0,
+      87.0,
+      88.0,
+      89.0,
+      90.0,
+      91.0
+    ]
+  },
+  "base_case_limitations": [
+    "linearized one-way capillary-gravity dynamics with a frozen acoustic field",
+    "single-valued axisymmetric surface; no overturning, pinch-off, detached drop, or satellites",
+    "positive_mound_volume_m3 is displaced mound volume, not droplet volume",
+    "weak-viscosity modal damping omits wall/bottom boundary layers and viscoelastic effects",
+    "dynamic modal operator is flat and contact-angle independent; wetting changes only the static baseline",
+    "no acoustic streaming, cavitation, thermal accumulation, or contact-angle hysteresis",
+    "normal-stress amplitude was not asserted to have absolute calibration",
+    "at least one materially participating mode exceeds the weak-viscosity damping-ratio limit"
+  ],
+  "largest_response_case_limitations": [
+    "linearized one-way capillary-gravity dynamics with a frozen acoustic field",
+    "single-valued axisymmetric surface; no overturning, pinch-off, detached drop, or satellites",
+    "positive_mound_volume_m3 is displaced mound volume, not droplet volume",
+    "weak-viscosity modal damping omits wall/bottom boundary layers and viscoelastic effects",
+    "dynamic modal operator is flat and contact-angle independent; wetting changes only the static baseline",
+    "no acoustic streaming, cavitation, thermal accumulation, or contact-angle hysteresis",
+    "normal-stress amplitude was not asserted to have absolute calibration"
+  ],
+  "additional_sweep_limitations": [
+    "surface tension at 22 degC is a flagged 3 K extrapolation below the measured range",
+    "contact angle and liquid attenuation are fixed across concentration",
+    "one common aperture-pressure scale is a drive proxy, not an electroacoustic voltage calibration",
+    "finite DMSO-air cavity build-up is omitted even though multiple returns fit within 150 cycles"
+  ]
+}
