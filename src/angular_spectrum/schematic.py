@@ -757,12 +757,20 @@ def acoustic_stack_schematic_figure(
         label=f"water {inputs.water_path_mm:.2f} mm",
         color=colors["water_line"],
     )
+    if 0.0 <= inputs.fluid_height_mm <= plate.well_depth_mm:
+        fill_volume_label = (
+            f" · ≈{plate.estimated_fill_volume_ul(inputs.fluid_height_mm):.2f} µL"
+        )
+    else:
+        fill_volume_label = " · outside nominal well"
     _dimension(
         axis,
         x_mm=dimension_x,
         low_mm=geometry.plate_fluid_y_mm,
         high_mm=geometry.meniscus_y_mm,
-        label=f"fill {inputs.fluid_height_mm:.2f} mm",
+        label=(
+            f"fill {inputs.fluid_height_mm:.2f} mm{fill_volume_label}"
+        ),
         color=colors["liquid_line"],
     )
     axis.text(

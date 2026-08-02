@@ -39,6 +39,13 @@ _GEOMETRY_LIMITATION = (
     "Bottom thickness should be verified on the physical plate for calibrated "
     "timing or amplitude work."
 )
+_VOLUME_HEIGHT_LIMITATION = (
+    "Fill height and volume are converted with an ideal square/diamond "
+    "frustum derived from the catalogue well widths and depth. The catalogue "
+    "volume field is reported separately and is not used to rescale the "
+    "geometry; the estimate does not include rounded corners, meniscus "
+    "curvature, corner wetting, dead volume, or manufacturing tolerances."
+)
 _CMM_PROVENANCE_LIMITATION = (
     "The site labels bottom thickness as CMM-measured but gives the malformed "
     "date '00.12.2025' and no measurement uncertainty."
@@ -64,6 +71,7 @@ class LabcytePlate:
     guid: str
     family: str
     material: str
+    well_shape: str
     well_count: int
     bottom_thickness_mm: float
     well_depth_mm: float
@@ -84,6 +92,7 @@ class LabcytePlate:
             "guid": self.guid,
             "family": self.family,
             "material": self.material,
+            "well_shape": self.well_shape,
             "source_url": self.source_url,
             "provenance": self.provenance,
         }
@@ -92,6 +101,8 @@ class LabcytePlate:
                 raise ValueError(f"{field_name} must not be empty")
         if self.well_count <= 0:
             raise ValueError("well_count must be > 0")
+        if self.well_shape not in {"square", "diamond"}:
+            raise ValueError("well_shape must be 'square' or 'diamond'")
         positive_values = {
             "bottom_thickness_mm": self.bottom_thickness_mm,
             "well_depth_mm": self.well_depth_mm,
@@ -138,6 +149,68 @@ class LabcytePlate:
             f"{self.bottom_thickness_mm:g} mm bottom"
         )
 
+    def estimated_fill_volume_ul(self, fill_height_mm: float) -> float:
+        """Estimate per-well volume from the catalogue geometry.
+
+        The square or rotated-square (diamond) well is represented as a
+        frustum whose side length changes linearly from
+        ``well_bottom_width_mm`` to ``well_top_width_mm``. Because 1 mm³ is
+        exactly 1 µL, integrating the ideal cross-sectional area directly
+        gives the estimated volume in µL. ``well_volume_ul`` remains a
+        separate catalogue capacity field and does not rescale the geometry.
+        """
+
+        height = float(fill_height_mm)
+        if not math.isfinite(height) or not 0.0 <= height <= self.well_depth_mm:
+            raise ValueError(
+                "fill_height_mm must be finite and lie between 0 and the "
+                "catalogue well depth"
+            )
+        if height == 0.0:
+            return 0.0
+        bottom = self.well_bottom_width_mm
+        width_slope = (
+            self.well_top_width_mm - bottom
+        ) / self.well_depth_mm
+        return float(
+            bottom**2 * height
+            + bottom * width_slope * height**2
+            + width_slope**2 * height**3 / 3.0
+        )
+
+    @property
+    def estimated_geometric_capacity_ul(self) -> float:
+        """Idealized volume at the catalogue well depth in µL."""
+
+        return self.estimated_fill_volume_ul(self.well_depth_mm)
+
+    def estimated_fill_height_mm(self, fill_volume_ul: float) -> float:
+        """Invert :meth:`estimated_fill_volume_ul` by monotone bisection."""
+
+        volume = float(fill_volume_ul)
+        if (
+            not math.isfinite(volume)
+            or not 0.0 <= volume <= self.estimated_geometric_capacity_ul
+        ):
+            raise ValueError(
+                "fill_volume_ul must be finite and lie between 0 and the "
+                "estimated geometric well capacity"
+            )
+        if volume == 0.0:
+            return 0.0
+        if volume == self.estimated_geometric_capacity_ul:
+            return self.well_depth_mm
+
+        lower_mm = 0.0
+        upper_mm = self.well_depth_mm
+        for _ in range(60):
+            midpoint_mm = 0.5 * (lower_mm + upper_mm)
+            if self.estimated_fill_volume_ul(midpoint_mm) < volume:
+                lower_mm = midpoint_mm
+            else:
+                upper_mm = midpoint_mm
+        return float(0.5 * (lower_mm + upper_mm))
+
 
 def _source_url(guid: str) -> str:
     return f"https://labware.ukrobotics.app/{guid}.json"
@@ -150,6 +223,7 @@ def _plate(
     guid: str,
     family: str,
     material: str,
+    well_shape: str,
     well_count: int,
     bottom_thickness_mm: float,
     well_depth_mm: float,
@@ -166,6 +240,7 @@ def _plate(
         guid=guid,
         family=family,
         material=material,
+        well_shape=well_shape,
         well_count=well_count,
         bottom_thickness_mm=bottom_thickness_mm,
         well_depth_mm=well_depth_mm,
@@ -184,6 +259,7 @@ def _plate(
             _SPEED_INFERENCE,
             _MATERIAL_LIMITATION,
             _GEOMETRY_LIMITATION,
+            _VOLUME_HEIGHT_LIMITATION,
             _CMM_PROVENANCE_LIMITATION,
         )
         + extra_limitations,
@@ -202,6 +278,7 @@ def _pp_0200(
         guid=guid,
         family="PP-0200",
         material="polypropylene",
+        well_shape="square",
         well_count=384,
         bottom_thickness_mm=0.78,
         well_depth_mm=10.91,
@@ -225,6 +302,7 @@ def _lp_0200(
         guid=guid,
         family="LP-0200",
         material="coc",
+        well_shape="diamond",
         well_count=384,
         bottom_thickness_mm=1.0,
         well_depth_mm=5.1,
@@ -249,6 +327,7 @@ def _lp_0400(
         guid=guid,
         family="LP-0400",
         material="coc",
+        well_shape="square",
         well_count=1536,
         bottom_thickness_mm=0.84,
         well_depth_mm=5.15,

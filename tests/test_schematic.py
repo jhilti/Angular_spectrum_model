@@ -78,6 +78,10 @@ def test_stack_figure_renders_to_portrait_png(
     assert figure.get_figheight() > figure.get_figwidth()
     assert "Snell edge rays" in legend_labels
     assert ("ASM axial focus" in legend_labels) is (asm_focus_mm is not None)
+    assert any(
+        "fill 4.22 mm · ≈55.87 µL" in text.get_text()
+        for text in figure.axes[0].texts
+    )
 
 
 def test_stack_geometry_flags_fill_above_catalogued_well_depth() -> None:

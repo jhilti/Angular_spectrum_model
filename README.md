@@ -87,6 +87,8 @@ diffraction, aperture weighting, elastic P/SV conversion, and plate resonances.
   reflections while retaining excitation start as the absolute time origin
 - Qualitative overlay of an optional uploaded survey JSON file
 - Labcyte plate dropdown with `PP-0200` (0.78 mm polypropylene) as the default
+- Filling input as either liquid height in millimetres or per-well volume in
+  microlitres, with both values shown throughout the interface
 - Immediate 2D preview of the upward-facing transducer, plate well, planar
   meniscus, refracted edge rays, and their estimated focus; the local plate
   cutaway repeats pitch-accurate neighbouring wells across the transducer and
@@ -111,6 +113,16 @@ representative 1.02 g/cm³ value in the official
 [TOPAS COC product brochure](https://topas.com/wp-content/uploads/2023/05/TOPAS_Product-Brochure.pdf),
 while the COC Poisson ratio remains an editable modeling assumption. Verify
 these values and the physical bottom thickness before quantitative use.
+
+The height–volume conversion integrates an idealized square or diamond frustum
+directly from the catalogue well widths and depth. The UK Robotics catalogue's
+nominal volume field (65 µL for PP-0200, which is also the
+[manufacturer's upper 384PP working-volume limit](https://media.beckman.com/-/media/pdf-assets/brochures/echo-acoustic-liquid-handler-consumables-brochure.pdf))
+is reported separately; it does not calibrate the volume at the full geometric
+well depth. Check the manufacturer's fluid-class working range for other plate
+families. The conversion is not a calibrated liquid-volume measurement. Real
+wells can differ because of sidewall and corner details, the meniscus, wetting,
+dead volume, and manufacturing tolerances.
 
 Run the interface locally with:
 

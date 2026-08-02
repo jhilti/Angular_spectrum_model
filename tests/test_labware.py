@@ -1,4 +1,5 @@
 import dataclasses
+import math
 
 import pytest
 
@@ -24,6 +25,7 @@ def test_pp_0200_is_default_with_authoritative_geometry() -> None:
     assert plate.guid == "2a09adfa-a468-4327-b5b1-5f8296136782"
     assert plate.family == "PP-0200"
     assert plate.material == "polypropylene"
+    assert plate.well_shape == "square"
     assert plate.well_count == 384
     assert plate.bottom_thickness_mm == pytest.approx(0.78)
     assert plate.well_depth_mm == pytest.approx(10.91)
@@ -51,6 +53,7 @@ def test_commercial_variants_are_grouped_into_three_physical_profiles() -> None:
         profile_values = {
             (
                 plate.material,
+                plate.well_shape,
                 plate.well_count,
                 plate.bottom_thickness_mm,
                 plate.well_depth_mm,
@@ -111,6 +114,67 @@ def test_snapshot_is_immutable_and_keeps_speed_inference_explicit() -> None:
 
     with pytest.raises(dataclasses.FrozenInstanceError):
         LABCYTE_PLATES[0].bottom_thickness_mm = 1.0  # type: ignore[misc]
+
+
+def test_fill_height_volume_conversion_matches_geometric_endpoints() -> None:
+    for plate in LABCYTE_PLATES:
+        expected_capacity_ul = plate.well_depth_mm * (
+            plate.well_bottom_width_mm**2
+            + plate.well_bottom_width_mm * plate.well_top_width_mm
+            + plate.well_top_width_mm**2
+        ) / 3.0
+        assert plate.estimated_fill_volume_ul(0.0) == 0.0
+        assert plate.estimated_geometric_capacity_ul == pytest.approx(
+            expected_capacity_ul
+        )
+        assert plate.estimated_fill_height_mm(0.0) == 0.0
+        assert plate.estimated_fill_height_mm(
+            plate.estimated_geometric_capacity_ul
+        ) == pytest.approx(plate.well_depth_mm)
+
+
+def test_fill_height_volume_conversion_is_monotone_and_invertible() -> None:
+    for plate in LABCYTE_PLATES:
+        heights = [plate.well_depth_mm * fraction for fraction in (0.1, 0.5, 0.9)]
+        volumes = [plate.estimated_fill_volume_ul(value) for value in heights]
+        assert volumes == sorted(volumes)
+        for height, volume in zip(heights, volumes, strict=True):
+            assert plate.estimated_fill_height_mm(volume) == pytest.approx(
+                height,
+                abs=1.0e-12,
+            )
+
+
+def test_pp_0200_default_height_has_geometric_volume() -> None:
+    plate = get_labcyte_plate("PP-0200")
+
+    assert plate.estimated_geometric_capacity_ul == pytest.approx(
+        149.3942666667
+    )
+    assert plate.estimated_geometric_capacity_ul != pytest.approx(
+        plate.well_volume_ul
+    )
+    assert plate.estimated_fill_volume_ul(4.22) == pytest.approx(
+        55.8748748044,
+        rel=1.0e-10,
+    )
+
+
+@pytest.mark.parametrize("value", [-0.1, math.nan, math.inf])
+def test_fill_conversion_rejects_invalid_values(value: float) -> None:
+    plate = get_labcyte_plate("PP-0200")
+
+    with pytest.raises(ValueError, match="fill_height_mm"):
+        plate.estimated_fill_volume_ul(value)
+    with pytest.raises(ValueError, match="fill_volume_ul"):
+        plate.estimated_fill_height_mm(value)
+
+    with pytest.raises(ValueError, match="fill_height_mm"):
+        plate.estimated_fill_volume_ul(plate.well_depth_mm + 0.01)
+    with pytest.raises(ValueError, match="fill_volume_ul"):
+        plate.estimated_fill_height_mm(
+            plate.estimated_geometric_capacity_ul + 0.01
+        )
 
 
 @pytest.mark.parametrize("identifier", ["", "unknown", "LPL-0200-BC"])

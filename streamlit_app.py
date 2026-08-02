@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import csv
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass, fields, replace
 from io import BytesIO, StringIO
 import json
 from typing import Any
@@ -36,6 +36,7 @@ from angular_spectrum.app_model import (
 )
 from angular_spectrum.labware import (
     DEFAULT_LABCYTE_PLATE_ID,
+    LabcytePlate,
     get_labcyte_plate,
     labcyte_plate_choice_ids,
     labcyte_plate_choice_label,
@@ -70,6 +71,11 @@ GEOMETRY_MODES = (
     GEOMETRY_SURVEY_KEEP_WATER,
     GEOMETRY_SURVEY_ALL,
 )
+
+FILL_HEIGHT_MODE = "Height [mm]"
+FILL_VOLUME_MODE = "Volume [µL]"
+FILL_INPUT_MODES = (FILL_HEIGHT_MODE, FILL_VOLUME_MODE)
+MINIMUM_FILL_HEIGHT_MM = 0.01
 
 COC_DENSITY_KG_M3 = 1020.0
 COC_POISSON_RATIO_ASSUMPTION = 0.40
@@ -430,7 +436,7 @@ st.markdown(
     }
     .metric-grid {
         display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
         gap: .9rem;
         margin-bottom: 1.15rem;
     }
@@ -688,6 +694,55 @@ def simulate_cached(inputs: SimulationInputs) -> InteractiveSimulationResult:
 
 def _optional_mm(value_m: float | None) -> str:
     return "not stored" if value_m is None else f"{value_m * 1e3:.3f} mm"
+
+
+def _estimated_fill_volume_ul(
+    plate: LabcytePlate,
+    fill_height_mm: float,
+) -> float | None:
+    """Return an idealized volume only inside the catalogued well depth."""
+
+    if (
+        not np.isfinite(fill_height_mm)
+        or fill_height_mm < 0.0
+        or fill_height_mm > plate.well_depth_mm
+    ):
+        return None
+    return plate.estimated_fill_volume_ul(fill_height_mm)
+
+
+def _filling_units_text(
+    plate: LabcytePlate,
+    fill_height_mm: float,
+) -> str:
+    """Format the canonical height together with its geometric volume."""
+
+    volume_ul = _estimated_fill_volume_ul(plate, fill_height_mm)
+    if volume_ul is None:
+        return f"{fill_height_mm:.3f} mm · volume outside nominal well geometry"
+    return f"{fill_height_mm:.3f} mm · ≈{volume_ul:.2f} µL per well"
+
+
+def _simulation_inputs_match(
+    first: SimulationInputs,
+    second: SimulationInputs,
+) -> bool:
+    """Compare two input states while tolerating unit-roundtrip noise."""
+
+    for field in fields(SimulationInputs):
+        first_value = getattr(first, field.name)
+        second_value = getattr(second, field.name)
+        if isinstance(first_value, str):
+            if first_value != second_value:
+                return False
+        elif not np.isclose(
+            float(first_value),
+            float(second_value),
+            rtol=1.0e-10,
+            atol=1.0e-12,
+        ):
+            return False
+    return True
 
 
 def _style_axis(axis: plt.Axes) -> None:
@@ -1210,21 +1265,43 @@ def result_summary(
     signals: DisplaySignals,
 ) -> dict[str, Any]:
     plate = get_labcyte_plate(result.inputs.plate_part_number)
+    fill_volume_ul = _estimated_fill_volume_ul(
+        plate,
+        result.inputs.fluid_height_mm,
+    )
     return {
         "inputs": asdict(result.inputs),
         "geometry_source": geometry_source,
+        "filling": {
+            "height_mm": result.inputs.fluid_height_mm,
+            "estimated_geometric_volume_ul_per_well": fill_volume_ul,
+            "volume_model": (
+                "ideal square/diamond frustum integrated from catalogue "
+                "bottom width, top width, and depth"
+            ),
+            "within_catalogue_well_depth": fill_volume_ul is not None,
+            "within_catalogue_nominal_volume": (
+                None
+                if fill_volume_ul is None
+                else fill_volume_ul <= plate.well_volume_ul
+            ),
+        },
         "labware": {
             "part_number": plate.id,
             "name": plate.name,
             "guid": plate.guid,
             "family": plate.family,
             "material": plate.material,
+            "well_shape": plate.well_shape,
             "well_count": plate.well_count,
             "well_depth_mm": plate.well_depth_mm,
             "well_top_width_mm": plate.well_top_width_mm,
             "well_bottom_width_mm": plate.well_bottom_width_mm,
             "well_pitch_mm": plate.well_pitch_mm,
             "well_volume_ul": plate.well_volume_ul,
+            "estimated_geometric_capacity_ul": (
+                plate.estimated_geometric_capacity_ul
+            ),
             "catalogue_bottom_thickness_mm": plate.bottom_thickness_mm,
             "simulation_bottom_thickness_mm": (
                 result.inputs.plate_thickness_mm
@@ -1395,6 +1472,11 @@ def result_summary(
             (
                 "plate and fluid attenuation are user inputs and default to zero"
             ),
+            (
+                "fill volume is an ideal square/diamond-frustum estimate from "
+                "catalogue dimensions; it excludes rounded corners, meniscus "
+                "curvature, wetting, dead volume, and tolerances"
+            ),
             "the meniscus is planar and parallel to the plate",
         ],
     }
@@ -1508,7 +1590,20 @@ with st.sidebar:
                 f"{_optional_mm(survey.stored_plate_thickness_m)}"
             )
             st.write(
-                f"Stored fluid height: {_optional_mm(survey.stored_fluid_height_m)}"
+                "Stored fluid filling: "
+                + (
+                    "not stored"
+                    if survey.stored_fluid_height_m is None
+                    else _filling_units_text(
+                        get_labcyte_plate(
+                            st.session_state.get(
+                                "labcyte_plate_part_number",
+                                DEFAULT_LABCYTE_PLATE_ID,
+                            )
+                        ),
+                        survey.stored_fluid_height_m * 1e3,
+                    )
+                )
             )
             st.write(f"Stored fluid label: {survey.fluid_material or 'missing'}")
     use_reference_calibration = st.checkbox(
@@ -1559,33 +1654,160 @@ with st.sidebar:
         )
 
     st.divider()
-    with st.form("simulation_form"):
-        st.markdown(
-            '<div class="sidebar-kicker">Fluid</div>',
-            unsafe_allow_html=True,
-        )
-        dmso_percent = st.number_input(
-            "DMSO [vol.%]",
-            min_value=0.0,
-            max_value=100.0,
-            value=80.0,
-            step=1.0,
-        )
-        temperature_c = st.number_input(
-            "Temperature [°C]",
-            min_value=20.0,
-            max_value=40.0,
-            value=22.0,
-            step=0.5,
-        )
-        fluid_height_mm = st.number_input(
-            "DMSO fill height [mm]",
-            min_value=0.1,
-            max_value=30.0,
-            value=4.22,
-            step=0.1,
+    st.markdown(
+        '<div class="sidebar-kicker">Fluid</div>',
+        unsafe_allow_html=True,
+    )
+    dmso_percent = st.number_input(
+        "DMSO [vol.%]",
+        min_value=0.0,
+        max_value=100.0,
+        value=80.0,
+        step=1.0,
+    )
+    temperature_c = st.number_input(
+        "Temperature [°C]",
+        min_value=20.0,
+        max_value=40.0,
+        value=22.0,
+        step=0.5,
+    )
+    fill_input_mode = st.radio(
+        "Filling input",
+        options=FILL_INPUT_MODES,
+        horizontal=True,
+        key="fill_input_mode",
+        help=(
+            "Choose the entered unit. Height remains the canonical acoustic "
+            "model input; µL is converted with the selected well geometry."
+        ),
+    )
+
+    fill_height_state_key = "_fill_height_mm_model"
+    fill_volume_state_key = "_fill_volume_ul_model"
+    previous_plate_id = st.session_state.get("_fill_plate_id")
+    previous_fill_mode = st.session_state.get("_fill_mode")
+    default_fill_height_mm = min(4.22, plate_record.well_depth_mm)
+    minimum_fill_volume_ul = plate_record.estimated_fill_volume_ul(
+        MINIMUM_FILL_HEIGHT_MM
+    )
+    maximum_fill_volume_ul = plate_record.estimated_geometric_capacity_ul
+
+    if fill_height_state_key not in st.session_state:
+        st.session_state[fill_height_state_key] = default_fill_height_mm
+    if fill_volume_state_key not in st.session_state:
+        st.session_state[fill_volume_state_key] = (
+            plate_record.estimated_fill_volume_ul(default_fill_height_mm)
         )
 
+    stored_height_mm = float(st.session_state[fill_height_state_key])
+    stored_volume_ul = float(st.session_state[fill_volume_state_key])
+    if not np.isfinite(stored_height_mm) or not np.isfinite(stored_volume_ul):
+        stored_height_mm = default_fill_height_mm
+        stored_volume_ul = plate_record.estimated_fill_volume_ul(
+            stored_height_mm
+        )
+
+    plate_changed = (
+        previous_plate_id is not None
+        and previous_plate_id != plate_record.id
+    )
+    fill_mode_changed = (
+        previous_fill_mode is not None
+        and previous_fill_mode != fill_input_mode
+    )
+    fill_context_changed = (
+        previous_plate_id is None
+        or previous_fill_mode is None
+        or plate_changed
+        or fill_mode_changed
+    )
+    fill_clip_message: str | None = None
+    if plate_changed and previous_fill_mode == FILL_VOLUME_MODE:
+        requested_volume_ul = stored_volume_ul
+        stored_volume_ul = float(
+            np.clip(
+                requested_volume_ul,
+                minimum_fill_volume_ul,
+                maximum_fill_volume_ul,
+            )
+        )
+        stored_height_mm = plate_record.estimated_fill_height_mm(
+            stored_volume_ul
+        )
+        if stored_volume_ul != requested_volume_ul:
+            fill_clip_message = (
+                "The previous volume was clipped to the selected plate's "
+                "geometric range."
+            )
+    elif plate_changed:
+        requested_height_mm = stored_height_mm
+        stored_height_mm = float(
+            np.clip(
+                requested_height_mm,
+                MINIMUM_FILL_HEIGHT_MM,
+                plate_record.well_depth_mm,
+            )
+        )
+        stored_volume_ul = plate_record.estimated_fill_volume_ul(
+            stored_height_mm
+        )
+        if stored_height_mm != requested_height_mm:
+            fill_clip_message = (
+                "The previous height was clipped to the selected plate's "
+                "well depth."
+            )
+
+    if fill_context_changed:
+        st.session_state.pop("fluid_height_mm_widget", None)
+        st.session_state.pop("fluid_volume_ul_widget", None)
+
+    if fill_input_mode == FILL_HEIGHT_MODE:
+        fluid_height_mm = st.number_input(
+            "Liquid fill height [mm]",
+            min_value=float(MINIMUM_FILL_HEIGHT_MM),
+            max_value=float(plate_record.well_depth_mm),
+            value=float(stored_height_mm),
+            step=0.01,
+            format="%.3f",
+            key="fluid_height_mm_widget",
+        )
+        fluid_volume_ul = plate_record.estimated_fill_volume_ul(
+            fluid_height_mm
+        )
+    else:
+        fluid_volume_ul = st.number_input(
+            "Liquid fill volume [µL]",
+            min_value=float(minimum_fill_volume_ul),
+            max_value=float(maximum_fill_volume_ul),
+            value=float(stored_volume_ul),
+            step=0.1,
+            format="%.2f",
+            key="fluid_volume_ul_widget",
+        )
+        fluid_height_mm = plate_record.estimated_fill_height_mm(
+            fluid_volume_ul
+        )
+
+    st.session_state[fill_height_state_key] = float(fluid_height_mm)
+    st.session_state[fill_volume_state_key] = float(fluid_volume_ul)
+    st.session_state["_fill_plate_id"] = plate_record.id
+    st.session_state["_fill_mode"] = fill_input_mode
+    if fill_clip_message is not None:
+        st.caption(fill_clip_message)
+    st.caption(
+        f"Filling: {_filling_units_text(plate_record, fluid_height_mm)}. "
+        f"Ideal geometric estimate; catalogue nominal volume "
+        f"{plate_record.well_volume_ul:g} µL."
+    )
+    if fluid_volume_ul > plate_record.well_volume_ul:
+        st.warning(
+            f"The estimated {fluid_volume_ul:.2f} µL exceeds the "
+            f"catalogue nominal volume of {plate_record.well_volume_ul:g} µL."
+        )
+
+    st.divider()
+    with st.form("simulation_form"):
         st.markdown(
             '<div class="sidebar-kicker">Geometry</div>',
             unsafe_allow_html=True,
@@ -1676,6 +1898,30 @@ with st.sidebar:
                     "measurement uncertainty."
                 ),
             )
+            sensitivity_low_mm = (
+                fluid_height_mm - fill_height_uncertainty_mm
+            )
+            sensitivity_high_mm = (
+                fluid_height_mm + fill_height_uncertainty_mm
+            )
+            if sensitivity_high_mm <= plate_record.well_depth_mm:
+                sensitivity_low_ul = plate_record.estimated_fill_volume_ul(
+                    sensitivity_low_mm
+                )
+                sensitivity_high_ul = plate_record.estimated_fill_volume_ul(
+                    sensitivity_high_mm
+                )
+                st.caption(
+                    "Equivalent geometric volume interval: "
+                    f"≈{sensitivity_low_ul:.2f}–{sensitivity_high_ul:.2f} "
+                    "µL per well."
+                )
+            else:
+                st.caption(
+                    "The upper sensitivity height lies beyond the selected "
+                    "plate's catalogue well depth, so no µL interval is "
+                    "reported."
+                )
             plate_longitudinal_speed_m_s = st.number_input(
                 "Plate longitudinal speed [m/s]",
                 min_value=500.0,
@@ -1847,6 +2093,9 @@ else:
         "refraction and is not a calculated pressure map."
     )
 
+stack_caption += (
+    f" Filling: {_filling_units_text(stack_plate, stack_inputs.fluid_height_mm)}."
+)
 stack_ray = refracted_ray_preview(stack_inputs)
 if stack_ray.ray_focus_y_mm is None:
     if stack_ray.critical_interface is None:
@@ -1886,11 +2135,29 @@ else:
     else:
         focus_state_copy += f" {ray_focus_summary}."
 
-if result is not None and plate_record.id != stack_plate.id:
-    st.info(
-        f"The visible result still uses {stack_plate.id}. Select "
-        "**Simulate and optimize focus** to apply the new plate choice."
-    )
+if result is not None:
+    try:
+        pending_inputs, _pending_geometry_source = _used_geometry(
+            manual_inputs,
+            survey,
+            geometry_mode,
+        )
+    except (ValueError, FloatingPointError):
+        pending_inputs = None
+    if (
+        pending_inputs is not None
+        and not _simulation_inputs_match(pending_inputs, result.inputs)
+    ):
+        pending_plate = get_labcyte_plate(pending_inputs.plate_part_number)
+        st.info(
+            "The visible plots still use the most recent simulation "
+            f"({stack_plate.id}, "
+            f"{_filling_units_text(stack_plate, result.inputs.fluid_height_mm)}). "
+            "The sidebar contains pending values "
+            f"({pending_plate.id}, "
+            f"{_filling_units_text(pending_plate, pending_inputs.fluid_height_mm)}). "
+            "Select **Simulate and optimize focus** to apply them."
+        )
 
 stack_geometry = acoustic_stack_geometry(
     stack_inputs,
@@ -2009,6 +2276,22 @@ offset = result.focus_offset_from_meniscus_mm
 offset_label = "below" if offset < 0.0 else "above"
 water_gap_delta = result.optimal_water_path_mm - result.inputs.water_path_mm
 cavity = result.meniscus_cavity
+result_plate = get_labcyte_plate(result.inputs.plate_part_number)
+result_fill_volume_ul = _estimated_fill_volume_ul(
+    result_plate,
+    result.inputs.fluid_height_mm,
+)
+if result_fill_volume_ul is None:
+    fill_metric_hint = "volume unavailable outside catalogue well depth"
+    focus_fill_volume_copy = "volume outside nominal well geometry"
+else:
+    fill_metric_hint = (
+        f"≈{result_fill_volume_ul:.2f} µL per {result_plate.id} well · "
+        "ideal geometric estimate"
+    )
+    focus_fill_volume_copy = f"≈{result_fill_volume_ul:.2f} µL per well"
+    if result_fill_volume_ul > result_plate.well_volume_ul:
+        fill_metric_hint += " · above catalogue nominal volume"
 coherent_min_percent = 100.0 * (cavity.coherent_gain_height_min - 1.0)
 coherent_max_percent = 100.0 * (cavity.coherent_gain_height_max - 1.0)
 narrowband_percent = cavity.narrowband_separated_pass_percent_change
@@ -2094,6 +2377,13 @@ st.markdown(
                 {result.inputs.dmso_volume_percent:.0f} vol.% at
                 {result.inputs.temperature_c:.1f} °C
             </div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-label">Liquid filling</div>
+            <div class="metric-value">
+                {result.inputs.fluid_height_mm:.3f} mm
+            </div>
+            <div class="metric-hint">{fill_metric_hint}</div>
         </div>
         <div class="metric-card reflection-card">
             <div>
@@ -2295,7 +2585,8 @@ with focus_tab:
             The current on-axis maximum is
             <strong>{result.focus_from_aperture_mm:.3f} mm from the
             aperture</strong>. For the {result.inputs.fluid_height_mm:.3f} mm
-            meniscus, center a low-drive experimental scan near
+            ({focus_fill_volume_copy}) meniscus, center a low-drive
+            experimental scan near
             <strong>{result.optimal_water_path_mm:.3f} mm</strong>. The search
             includes the PP transmission phase and temperature-dependent water
             and DMSO sound speeds. For a one-cycle ejection pulse, verify this
