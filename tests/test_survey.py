@@ -20,6 +20,7 @@ class SurveyImportTests(unittest.TestCase):
         signal[60:65] = [0.0, 1.0, -2.0, 1.0, 0.0]
         return {
             "DateTime": "2026-01-01T00:00:00Z",
+            "PlateTypeId": "PP-0200",
             "FluidMaterial": None,
             "SampleRangeAnalysisStartUSecs": 10.0,
             "SurveyResult": {
@@ -55,6 +56,7 @@ class SurveyImportTests(unittest.TestCase):
         self.assertEqual(parsed.probe_frequency_hz, 10.0e6)
         self.assertEqual(parsed.tone_length_cycles, 1.0)
         self.assertEqual(parsed.probe_voltage_setting_v, 100.0)
+        self.assertEqual(parsed.plate_type_id, "PP-0200")
         self.assertFalse(parsed.excitation_metadata_is_calibrated)
         self.assertAlmostEqual(parsed.time_s[0], 10.0e-6)
         self.assertAlmostEqual(parsed.time_since_excitation_s[0], 10.0e-6)
@@ -81,6 +83,21 @@ class SurveyImportTests(unittest.TestCase):
         self.assertAlmostEqual(geometry.tof_probe_to_plate_m, 8.88e-3)
         self.assertAlmostEqual(geometry.tof_fluid_height_m, 1.2e-3)
         self.assertAlmostEqual(geometry.stored_height_timing_error_s, -0.09375e-6)
+
+    def test_plate_type_id_accepts_only_nonempty_strings(self) -> None:
+        document = self._document()
+        document["PlateTypeId"] = "  LP-0200  "
+        self.assertEqual(
+            parse_survey_pulse_echo(document).plate_type_id,
+            "LP-0200",
+        )
+
+        for invalid_value in (None, "", "   ", 200):
+            document["PlateTypeId"] = invalid_value
+            with self.subTest(value=invalid_value):
+                self.assertIsNone(
+                    parse_survey_pulse_echo(document).plate_type_id
+                )
 
 
 if __name__ == "__main__":

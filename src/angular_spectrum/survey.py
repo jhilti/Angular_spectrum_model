@@ -29,6 +29,7 @@ class SurveyPulseEcho:
     stored_probe_to_plate_m: float | None
     stored_plate_thickness_m: float | None
     stored_fluid_height_m: float | None
+    plate_type_id: str | None
     fluid_material: str | None
     date_time: str | None
     probe_frequency_hz: float | None
@@ -153,6 +154,13 @@ def parse_survey_pulse_echo(
     if scale <= 0.0:
         raise ValueError("survey trace has zero ADC range")
 
+    plate_type_id_raw = document.get("PlateTypeId")
+    plate_type_id = None
+    if isinstance(plate_type_id_raw, str):
+        candidate = plate_type_id_raw.strip()
+        if candidate:
+            plate_type_id = candidate
+
     fluid_material = document.get("FluidMaterial")
     if fluid_material is not None:
         fluid_material = str(fluid_material)
@@ -180,6 +188,7 @@ def parse_survey_pulse_echo(
         stored_fluid_height_m=_positive_optional_m(
             result.get("FluidHeight")
         ),
+        plate_type_id=plate_type_id,
         fluid_material=fluid_material,
         date_time=date_time,
         probe_frequency_hz=_positive_optional(ping.get("ProbeFrequency")),

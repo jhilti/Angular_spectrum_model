@@ -367,6 +367,17 @@ deriving PP thickness and fluid height only from differences between the three
 echo markers. **Survey metadata · all distances** is available for diagnostics,
 but it also adopts the stored TOF-derived water distance.
 
+After upload, the web interface shows a **Survey → input preview** before it
+changes any field. **Apply survey values to inputs** copies a recognized plate
+ID, stored plate-bottom thickness, DMSO/temperature-corrected fill height and
+estimated µL, plus the recorded excitation frequency and tone length. It then
+returns the geometry source to **Manual geometry**, so the copied values remain
+visible and editable. The button does not run the simulation. By default it
+keeps the manually entered water gap; choose the all-distances mode before
+applying only when the survey's absolute distance is intentionally preferred.
+DMSO concentration, temperature, focus, losses, voltage, and ADC amplitude are
+never inferred or overwritten by this action.
+
 A separate comparison tool provides a detailed analysis of JSON timestamps,
 locally normalized echo shapes, and spectra:
 

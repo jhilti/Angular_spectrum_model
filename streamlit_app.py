@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 from dataclasses import asdict, dataclass, fields, replace
+import hashlib
 from io import BytesIO, StringIO
 import json
 from typing import Any
@@ -114,6 +115,25 @@ class DisplaySignals:
     spectrum_db: np.ndarray
     reference_calibration: ReferenceTransferCalibration | None
     calibration_error: str | None
+
+
+@dataclass(frozen=True)
+class SurveyInputUpdate:
+    """Validated survey values that can be copied into visible app inputs."""
+
+    plate: LabcytePlate
+    plate_source: str
+    current_water_path_mm: float
+    water_path_mm: float | None
+    water_source: str
+    plate_thickness_mm: float | None
+    plate_thickness_source: str
+    fluid_height_mm: float | None
+    fluid_volume_ul: float | None
+    fluid_source: str
+    excitation_frequency_mhz: float | None
+    excitation_cycles: float | None
+    notes: tuple[str, ...]
 
 
 st.set_page_config(
@@ -761,6 +781,202 @@ def _style_axis(axis: plt.Axes) -> None:
     axis.yaxis.label.set_color(COLORS["muted"])
     axis.title.set_color(COLORS["ink"])
     axis.title.set_fontweight(700)
+
+
+def _survey_input_update(
+    survey: SurveyPulseEcho,
+    *,
+    current_plate: LabcytePlate,
+    dmso_percent: float,
+    temperature_c: float,
+    current_water_path_mm: float,
+    geometry_mode: str,
+    plate_longitudinal_speed_m_s: float | None = None,
+) -> SurveyInputUpdate:
+    """Build a conservative, inspectable survey-to-input update.
+
+    Echo differences determine plate and liquid thickness. Absolute water
+    timing is copied only in the explicitly selected all-distances mode,
+    because it can contain an unknown trigger/electronics delay.
+    """
+
+    notes: list[str] = []
+    target_plate = current_plate
+    if survey.plate_type_id is None:
+        plate_source = "current selection · survey has no PlateTypeId"
+    else:
+        try:
+            target_plate = get_labcyte_plate(survey.plate_type_id)
+            plate_source = f"survey PlateTypeId · {survey.plate_type_id}"
+        except KeyError:
+            plate_source = (
+                "current selection · survey PlateTypeId is not in the "
+                "bundled catalogue"
+            )
+            notes.append(
+                f"Unknown survey plate identifier {survey.plate_type_id!r}; "
+                "the current plate selection will be kept."
+            )
+
+    if plate_longitudinal_speed_m_s is None:
+        plate_longitudinal_speed_m_s = (
+            target_plate.inferred_longitudinal_speed_m_s
+        )
+    fluid = dmso_water_properties(
+        dmso_percent / 100.0,
+        basis="volume",
+        temperature_c=temperature_c,
+    )
+    water = water_properties(temperature_c)
+    geometry = interpret_survey_geometry(
+        survey,
+        incident_sound_speed_m_s=water.sound_speed_m_s,
+        plate_longitudinal_speed_m_s=plate_longitudinal_speed_m_s,
+        fluid_sound_speed_m_s=fluid.sound_speed_m_s,
+    )
+
+    water_path_mm: float | None = None
+    if geometry_mode == GEOMETRY_SURVEY_ALL:
+        water_path_m = (
+            geometry.stored_probe_to_plate_m
+            if geometry.stored_probe_to_plate_m is not None
+            else geometry.tof_probe_to_plate_m
+        )
+        water_source = (
+            "stored survey distance"
+            if geometry.stored_probe_to_plate_m is not None
+            else "absolute survey time of flight"
+        )
+        candidate = water_path_m * 1e3
+        if 0.1 <= candidate <= 60.0:
+            water_path_mm = candidate
+        else:
+            notes.append(
+                f"Survey water gap {candidate:.3f} mm is outside the app "
+                "range and will not be copied."
+            )
+    else:
+        water_source = "kept manual · absolute survey timing may include delay"
+
+    if geometry.stored_plate_thickness_m is not None:
+        plate_thickness_candidate_mm = (
+            geometry.stored_plate_thickness_m * 1e3
+        )
+        plate_thickness_source = "stored survey thickness"
+    else:
+        plate_thickness_candidate_mm = geometry.tof_plate_thickness_m * 1e3
+        plate_thickness_source = "echo spacing with selected plate sound speed"
+    if 0.05 <= plate_thickness_candidate_mm <= 5.0:
+        plate_thickness_mm: float | None = plate_thickness_candidate_mm
+    else:
+        plate_thickness_mm = None
+        notes.append(
+            f"Survey plate thickness {plate_thickness_candidate_mm:.3f} mm "
+            "is outside the app range and will not be copied."
+        )
+
+    fluid_height_candidate_mm = geometry.tof_fluid_height_m * 1e3
+    fluid_source = (
+        f"echo spacing at {dmso_percent:g} vol.% DMSO and "
+        f"{temperature_c:g} °C"
+    )
+    if MINIMUM_FILL_HEIGHT_MM <= fluid_height_candidate_mm <= (
+        target_plate.well_depth_mm
+    ):
+        fluid_height_mm: float | None = fluid_height_candidate_mm
+        fluid_volume_ul: float | None = target_plate.estimated_fill_volume_ul(
+            fluid_height_candidate_mm
+        )
+    else:
+        fluid_height_mm = None
+        fluid_volume_ul = None
+        notes.append(
+            f"Survey-derived filling {fluid_height_candidate_mm:.3f} mm is "
+            f"outside the {target_plate.id} well range and will not be copied."
+        )
+
+    excitation_frequency_mhz: float | None = None
+    if survey.probe_frequency_hz is not None:
+        candidate = survey.probe_frequency_hz / 1e6
+        if 3.0 <= candidate <= 12.0:
+            excitation_frequency_mhz = candidate
+        else:
+            notes.append(
+                f"Survey frequency {candidate:g} MHz is outside the app "
+                "range and will not be copied."
+            )
+
+    excitation_cycles: float | None = None
+    if survey.tone_length_cycles is not None:
+        candidate = survey.tone_length_cycles
+        if 0.5 <= candidate <= 10.0:
+            excitation_cycles = candidate
+        else:
+            notes.append(
+                f"Survey tone length {candidate:g} cycles is outside the app "
+                "range and will not be copied."
+            )
+
+    return SurveyInputUpdate(
+        plate=target_plate,
+        plate_source=plate_source,
+        current_water_path_mm=current_water_path_mm,
+        water_path_mm=water_path_mm,
+        water_source=water_source,
+        plate_thickness_mm=plate_thickness_mm,
+        plate_thickness_source=plate_thickness_source,
+        fluid_height_mm=fluid_height_mm,
+        fluid_volume_ul=fluid_volume_ul,
+        fluid_source=fluid_source,
+        excitation_frequency_mhz=excitation_frequency_mhz,
+        excitation_cycles=excitation_cycles,
+        notes=tuple(notes),
+    )
+
+
+def _apply_survey_input_update(
+    update: SurveyInputUpdate,
+    *,
+    fill_input_mode: str,
+    survey_token: tuple[str, str],
+) -> None:
+    """Copy a validated update into widget state without running the model."""
+
+    state = st.session_state
+    state["labcyte_plate_part_number"] = update.plate.id
+    if update.water_path_mm is not None:
+        state["water_path_mm_input"] = update.water_path_mm
+    if update.plate_thickness_mm is not None:
+        state[f"plate_thickness_mm_{update.plate.family}"] = (
+            update.plate_thickness_mm
+        )
+    if update.fluid_height_mm is not None and update.fluid_volume_ul is not None:
+        state["_fill_height_mm_model"] = update.fluid_height_mm
+        state["_fill_volume_ul_model"] = update.fluid_volume_ul
+        state.pop("fluid_height_mm_widget", None)
+        state.pop("fluid_volume_ul_widget", None)
+        state["_fill_plate_id"] = update.plate.id
+        state["_fill_mode"] = fill_input_mode
+    if update.excitation_frequency_mhz is not None:
+        state["excitation_frequency_mhz_input"] = (
+            update.excitation_frequency_mhz
+        )
+    if update.excitation_cycles is not None:
+        state["excitation_cycles_input"] = update.excitation_cycles
+
+    # The copied numbers are now ordinary, visible manual inputs. This avoids
+    # applying the same survey transformation again when the model is run.
+    state["geometry_mode"] = GEOMETRY_MANUAL
+    state.pop("simulation_result", None)
+    state.pop("simulation_survey", None)
+    state.pop("geometry_source", None)
+    state["_survey_apply_status"] = {
+        "token": survey_token,
+        "message": (
+            "Survey values copied. Review the visible inputs, then select "
+            "Simulate and optimize focus."
+        ),
+    }
 
 
 def _used_geometry(
@@ -1546,12 +1762,14 @@ with st.sidebar:
             "The file is parsed in memory. Raw ADC data are not saved by the app."
         ),
     )
+    uploaded_bytes: bytes | None = None
     if uploaded_file is not None:
         if uploaded_file.size > 10 * 1024 * 1024:
             st.error("The survey file must be smaller than 10 MB.")
         else:
             try:
-                survey = parse_uploaded_survey(uploaded_file.getvalue())
+                uploaded_bytes = uploaded_file.getvalue()
+                survey = parse_uploaded_survey(uploaded_bytes)
             except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
                 st.error(f"Could not read this survey: {exc}")
     if survey is None:
@@ -1563,8 +1781,11 @@ with st.sidebar:
         )
     survey_token = (
         None
-        if survey is None or uploaded_file is None
-        else (uploaded_file.name, uploaded_file.size)
+        if survey is None or uploaded_file is None or uploaded_bytes is None
+        else (
+            uploaded_file.name,
+            hashlib.sha256(uploaded_bytes).hexdigest(),
+        )
     )
     if st.session_state.get("_survey_token") != survey_token:
         st.session_state["_survey_token"] = survey_token
@@ -1574,6 +1795,7 @@ with st.sidebar:
             else GEOMETRY_MANUAL
         )
         st.session_state["use_reference_calibration"] = survey is not None
+        st.session_state.pop("_survey_apply_status", None)
     elif "geometry_mode" not in st.session_state:
         st.session_state["geometry_mode"] = GEOMETRY_MANUAL
     if "use_reference_calibration" not in st.session_state:
@@ -1622,10 +1844,13 @@ with st.sidebar:
         '<div class="sidebar-kicker">Labware</div>',
         unsafe_allow_html=True,
     )
+    if "labcyte_plate_part_number" not in st.session_state:
+        st.session_state["labcyte_plate_part_number"] = (
+            DEFAULT_LABCYTE_PLATE_ID
+        )
     plate_part_number = st.selectbox(
         "Labcyte plate",
         options=labcyte_plate_choice_ids(),
-        index=labcyte_plate_choice_ids().index(DEFAULT_LABCYTE_PLATE_ID),
         format_func=labcyte_plate_choice_label,
         key="labcyte_plate_part_number",
         help=(
@@ -1658,19 +1883,23 @@ with st.sidebar:
         '<div class="sidebar-kicker">Fluid</div>',
         unsafe_allow_html=True,
     )
+    if "dmso_percent_input" not in st.session_state:
+        st.session_state["dmso_percent_input"] = 80.0
     dmso_percent = st.number_input(
         "DMSO [vol.%]",
         min_value=0.0,
         max_value=100.0,
-        value=80.0,
         step=1.0,
+        key="dmso_percent_input",
     )
+    if "temperature_c_input" not in st.session_state:
+        st.session_state["temperature_c_input"] = 22.0
     temperature_c = st.number_input(
         "Temperature [°C]",
         min_value=20.0,
         max_value=40.0,
-        value=22.0,
         step=0.5,
+        key="temperature_c_input",
     )
     fill_input_mode = st.radio(
         "Filling input",
@@ -1807,60 +2036,167 @@ with st.sidebar:
         )
 
     st.divider()
-    with st.form("simulation_form"):
-        st.markdown(
-            '<div class="sidebar-kicker">Geometry</div>',
-            unsafe_allow_html=True,
+    st.markdown(
+        '<div class="sidebar-kicker">Geometry</div>',
+        unsafe_allow_html=True,
+    )
+    if "water_path_mm_input" not in st.session_state:
+        st.session_state["water_path_mm_input"] = 25.3
+    water_path_mm = st.number_input(
+        "Water gap to plate [mm]",
+        min_value=0.1,
+        max_value=60.0,
+        step=0.1,
+        key="water_path_mm_input",
+    )
+    plate_thickness_state_key = f"plate_thickness_mm_{plate_record.family}"
+    if plate_thickness_state_key not in st.session_state:
+        st.session_state[plate_thickness_state_key] = float(
+            plate_record.bottom_thickness_mm
         )
-        water_path_mm = st.number_input(
-            "Water gap to plate [mm]",
-            min_value=0.1,
-            max_value=60.0,
-            value=25.3,
-            step=0.1,
-        )
-        plate_thickness_mm = st.number_input(
-            "Plate bottom thickness [mm]",
-            min_value=0.05,
-            max_value=5.0,
-            value=float(plate_record.bottom_thickness_mm),
-            step=0.01,
-            key=f"plate_thickness_mm_{plate_record.family}",
-            help=(
-                "Initialized from the selected catalogue profile. Enter your "
-                "own measured value when available."
-            ),
-        )
-        geometry_mode = st.selectbox(
-            "Geometry source",
-            options=GEOMETRY_MODES,
-            disabled=survey is None,
-            key="geometry_mode",
-            help=(
-                "The recommended survey mode preserves an independently known "
-                "manual water gap while deriving plate and fluid thickness from "
-                "echo differences. The all-distances mode also uses the stored "
-                "water distance."
-            ),
-        )
+    plate_thickness_mm = st.number_input(
+        "Plate bottom thickness [mm]",
+        min_value=0.05,
+        max_value=5.0,
+        step=0.01,
+        key=plate_thickness_state_key,
+        help=(
+            "Initialized from the selected catalogue profile. Enter your "
+            "own measured value when available."
+        ),
+    )
+    geometry_mode = st.selectbox(
+        "Geometry source",
+        options=GEOMETRY_MODES,
+        disabled=survey is None,
+        key="geometry_mode",
+        help=(
+            "The recommended survey mode preserves an independently known "
+            "manual water gap while deriving plate and fluid thickness from "
+            "echo differences. The all-distances mode also uses the stored "
+            "water distance."
+        ),
+    )
 
+    if survey is not None and survey_token is not None:
+        survey_plate_for_speed = plate_record
+        if survey.plate_type_id is not None:
+            try:
+                survey_plate_for_speed = get_labcyte_plate(
+                    survey.plate_type_id
+                )
+            except KeyError:
+                pass
+        survey_plate_speed = float(
+            st.session_state.get(
+                f"plate_speed_{survey_plate_for_speed.family}",
+                survey_plate_for_speed.inferred_longitudinal_speed_m_s,
+            )
+        )
+        survey_update = _survey_input_update(
+            survey,
+            current_plate=plate_record,
+            dmso_percent=dmso_percent,
+            temperature_c=temperature_c,
+            current_water_path_mm=water_path_mm,
+            geometry_mode=geometry_mode,
+            plate_longitudinal_speed_m_s=survey_plate_speed,
+        )
+        water_preview = (
+            f"{survey_update.current_water_path_mm:.3f} mm · unchanged"
+            if survey_update.water_path_mm is None
+            else f"{survey_update.water_path_mm:.3f} mm"
+        )
+        plate_preview = (
+            "not copied"
+            if survey_update.plate_thickness_mm is None
+            else f"{survey_update.plate_thickness_mm:.4f} mm"
+        )
+        fill_preview = (
+            "not copied"
+            if survey_update.fluid_height_mm is None
+            or survey_update.fluid_volume_ul is None
+            else (
+                f"{survey_update.fluid_height_mm:.4f} mm · "
+                f"≈{survey_update.fluid_volume_ul:.2f} µL"
+            )
+        )
+        frequency_preview = (
+            "not available"
+            if survey_update.excitation_frequency_mhz is None
+            else f"{survey_update.excitation_frequency_mhz:g} MHz"
+        )
+        cycles_preview = (
+            "not available"
+            if survey_update.excitation_cycles is None
+            else f"{survey_update.excitation_cycles:g} cycles"
+        )
+        with st.container(border=True):
+            st.markdown("**Survey → input preview**")
+            st.markdown(
+                f"- **Plate:** {survey_update.plate.id} · "
+                f"{survey_update.plate_source}\n"
+                f"- **Water gap:** {water_preview} · "
+                f"{survey_update.water_source}\n"
+                f"- **Plate bottom:** {plate_preview} · "
+                f"{survey_update.plate_thickness_source}\n"
+                f"- **Filling:** {fill_preview} · "
+                f"{survey_update.fluid_source}\n"
+                f"- **Excitation:** {frequency_preview} · {cycles_preview}"
+            )
+            st.caption(
+                "DMSO concentration, temperature, focus, losses, and all "
+                "amplitude settings remain unchanged. The stored fluid "
+                "height is not copied because it is derived from an assumed "
+                "sound speed."
+            )
+            for note in survey_update.notes:
+                st.warning(note)
+            st.button(
+                "Apply survey values to inputs",
+                type="primary",
+                width="stretch",
+                on_click=_apply_survey_input_update,
+                kwargs={
+                    "update": survey_update,
+                    "fill_input_mode": fill_input_mode,
+                    "survey_token": survey_token,
+                },
+                help=(
+                    "Copies the previewed values into the visible controls. "
+                    "It does not run the acoustic simulation."
+                ),
+            )
+        apply_status = st.session_state.get("_survey_apply_status")
+        if (
+            isinstance(apply_status, dict)
+            and apply_status.get("token") == survey_token
+        ):
+            st.success(str(apply_status["message"]))
+
+    st.divider()
+    with st.form("simulation_form"):
         st.markdown(
             '<div class="sidebar-kicker">Transducer</div>',
             unsafe_allow_html=True,
         )
+        if "excitation_frequency_mhz_input" not in st.session_state:
+            st.session_state["excitation_frequency_mhz_input"] = 10.0
         excitation_frequency_mhz = st.number_input(
             "Excitation frequency [MHz]",
             min_value=3.0,
             max_value=12.0,
-            value=10.0,
             step=0.1,
+            key="excitation_frequency_mhz_input",
         )
+        if "excitation_cycles_input" not in st.session_state:
+            st.session_state["excitation_cycles_input"] = 1.0
         excitation_cycles = st.number_input(
             "Pulse cycles",
             min_value=0.5,
             max_value=10.0,
-            value=1.0,
             step=0.5,
+            key="excitation_cycles_input",
         )
         transducer_diameter_mm = st.number_input(
             "Aperture diameter [mm]",
