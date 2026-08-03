@@ -81,6 +81,8 @@ After simulation, a separate orange star marks the on-axis intensity maximum
 returned by the full angular-spectrum model. The difference between the two
 markers exposes effects that a single ray cannot represent, including
 diffraction, aperture weighting, elastic P/SV conversion, and plate resonances.
+The right-hand dimension rail always reports the exact current water path,
+plate-floor thickness, and DMSO concentration, height, and estimated volume.
 
 - Broadband pulse-echo response with water–PP, PP–DMSO, and DMSO–air echoes
 - Pulse-response time window automatically framed around all three interface

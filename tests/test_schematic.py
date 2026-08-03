@@ -78,10 +78,62 @@ def test_stack_figure_renders_to_portrait_png(
     assert figure.get_figheight() > figure.get_figwidth()
     assert "Snell edge rays" in legend_labels
     assert ("ASM axial focus" in legend_labels) is (asm_focus_mm is not None)
+    assert not figure.axes[0].axison
     assert any(
-        "fill 4.22 mm · ≈55.87 µL" in text.get_text()
+        "DMSO 80 vol.%\n4.22 mm · ≈55.87 µL" in text.get_text()
         for text in figure.axes[0].texts
     )
+
+
+def test_dimension_rail_tracks_all_three_layer_inputs() -> None:
+    inputs = SimulationInputs(
+        water_path_mm=24.5,
+        plate_thickness_mm=0.78,
+        fluid_height_mm=2.0,
+        dmso_volume_percent=80.0,
+    )
+    plate = get_labcyte_plate("PP-0200")
+    figure = acoustic_stack_schematic_figure(
+        inputs,
+        focus_from_aperture_mm=27.0,
+        plate=plate,
+    )
+    axis = figure.axes[0]
+    artists = {
+        artist.get_gid(): artist
+        for artist in axis.get_children()
+        if artist.get_gid() is not None
+    }
+
+    expected_spans = {
+        "water": (0.0, 24.5),
+        "plate": (24.5, 25.28),
+        "liquid": (25.28, 27.28),
+    }
+    arrow_x: float | None = None
+    for key, (low_mm, high_mm) in expected_spans.items():
+        arrow = artists[f"dimension-{key}-arrow"]
+        current_x = float(arrow.xy[0])
+        if arrow_x is None:
+            arrow_x = current_x
+        assert current_x == pytest.approx(arrow_x)
+        assert arrow.xy == pytest.approx((arrow_x, high_mm))
+        assert arrow.xyann == pytest.approx((arrow_x, low_mm))
+
+    assert arrow_x is not None
+    geometry = acoustic_stack_geometry(inputs, 27.0, plate)
+    cutaway_right = (
+        max(geometry.displayed_well_centres_mm)
+        + geometry.well_top_radius_mm
+    )
+    assert cutaway_right < arrow_x < axis.get_xlim()[1]
+    assert "WATER  24.50 mm" in artists["dimension-water-label"].get_text()
+    assert "PP  0.78 mm" in artists["dimension-plate-label"].get_text()
+    assert (
+        "DMSO 80 vol.%\n2.00 mm"
+        in artists["dimension-liquid-label"].get_text()
+    )
+    plt.close(figure)
 
 
 def test_stack_geometry_flags_fill_above_catalogued_well_depth() -> None:
