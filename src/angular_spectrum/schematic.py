@@ -951,7 +951,9 @@ def acoustic_stack_schematic_figure(
         ha="left",
         va="top",
     )
-    key_y = upper_y - 1.65
+    # Keep the symbol key visually separate from the large title at both
+    # desktop and phone-scaled rendering sizes.
+    key_y = upper_y - 2.25
     key_x = drawing_left
     key_ray = axis.plot(
         [key_x, key_x + 0.85],
