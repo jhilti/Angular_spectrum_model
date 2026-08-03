@@ -26,7 +26,7 @@ except ModuleNotFoundError:
 
 import angular_spectrum.schematic as schematic_module
 
-EXPECTED_SCHEMATIC_RENDERER_REVISION = "2026-08-03-clean-technical-v2"
+EXPECTED_SCHEMATIC_RENDERER_REVISION = "2026-08-03-clean-technical-v3"
 if (
     getattr(schematic_module, "SCHEMATIC_RENDERER_REVISION", None)
     != EXPECTED_SCHEMATIC_RENDERER_REVISION
@@ -100,7 +100,7 @@ MINIMUM_FILL_HEIGHT_MM = 0.01
 
 COC_DENSITY_KG_M3 = 1020.0
 COC_POISSON_RATIO_ASSUMPTION = 0.40
-APP_STATE_SCHEMA_VERSION = "2026-08-03-schematic-v2"
+APP_STATE_SCHEMA_VERSION = "2026-08-03-schematic-v3"
 _DERIVED_SESSION_STATE_KEYS = (
     "simulation_result",
     "simulation_survey",

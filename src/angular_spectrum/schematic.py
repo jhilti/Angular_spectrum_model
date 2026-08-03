@@ -18,7 +18,7 @@ from .labware import LabcytePlate
 # Streamlit Community Cloud can retain an imported project module while
 # hot-reloading the entrypoint.  The app checks this revision before rendering
 # so an old schematic cannot silently survive a deployment update.
-SCHEMATIC_RENDERER_REVISION = "2026-08-03-clean-technical-v2"
+SCHEMATIC_RENDERER_REVISION = "2026-08-03-clean-technical-v3"
 
 
 @dataclass(frozen=True, slots=True)

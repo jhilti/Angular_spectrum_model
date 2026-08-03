@@ -22,7 +22,7 @@ from angular_spectrum.schematic import (
 
 
 def test_schematic_renderer_revision_identifies_clean_layout() -> None:
-    assert SCHEMATIC_RENDERER_REVISION == "2026-08-03-clean-technical-v2"
+    assert SCHEMATIC_RENDERER_REVISION == "2026-08-03-clean-technical-v3"
 
 
 def test_stack_geometry_tracks_all_selected_dimensions() -> None:
