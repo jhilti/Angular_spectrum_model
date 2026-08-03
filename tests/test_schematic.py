@@ -14,10 +14,15 @@ from angular_spectrum.dmso_mixture import (
 )
 from angular_spectrum.labware import get_labcyte_plate
 from angular_spectrum.schematic import (
+    SCHEMATIC_RENDERER_REVISION,
     acoustic_stack_geometry,
     acoustic_stack_schematic_figure,
     refracted_ray_preview,
 )
+
+
+def test_schematic_renderer_revision_identifies_clean_layout() -> None:
+    assert SCHEMATIC_RENDERER_REVISION == "2026-08-03-clean-technical-v2"
 
 
 def test_stack_geometry_tracks_all_selected_dimensions() -> None:

@@ -23,6 +23,7 @@ except ModuleNotFoundError:
     go = None
     make_subplots = None
 
+import angular_spectrum.schematic as schematic_module
 from angular_spectrum import (
     ReferenceTransferCalibration,
     SurveyPulseEcho,
@@ -87,7 +88,8 @@ MINIMUM_FILL_HEIGHT_MM = 0.01
 
 COC_DENSITY_KG_M3 = 1020.0
 COC_POISSON_RATIO_ASSUMPTION = 0.40
-APP_STATE_SCHEMA_VERSION = "2026-08-02-survey-plate-id-v1"
+EXPECTED_SCHEMATIC_RENDERER_REVISION = "2026-08-03-clean-technical-v2"
+APP_STATE_SCHEMA_VERSION = "2026-08-03-schematic-v2"
 _DERIVED_SESSION_STATE_KEYS = (
     "simulation_result",
     "simulation_survey",
@@ -117,6 +119,8 @@ _MODEL_SCHEMA_COMPATIBLE = (
         "probe_voltage_setting_v",
     )
     and hasattr(SurveyPulseEcho, "time_since_excitation_s")
+    and getattr(schematic_module, "SCHEMATIC_RENDERER_REVISION", None)
+    == EXPECTED_SCHEMATIC_RENDERER_REVISION
 )
 
 
