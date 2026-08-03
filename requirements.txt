@@ -1,5 +1,6 @@
 # Keep Cloud dependencies explicit so Community Cloud detects additions and
 # rebuilds the environment before hot-reloading the entrypoint.
+# Deployment revision: 2026-08-03-clean-technical-schematic-v2
 -e .
 streamlit>=1.60,<2
 plotly>=6,<7
