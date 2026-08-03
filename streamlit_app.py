@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 from dataclasses import asdict, dataclass, fields, replace
 import hashlib
+import importlib
 from io import BytesIO, StringIO
 import json
 from typing import Any
@@ -24,6 +25,17 @@ except ModuleNotFoundError:
     make_subplots = None
 
 import angular_spectrum.schematic as schematic_module
+
+EXPECTED_SCHEMATIC_RENDERER_REVISION = "2026-08-03-clean-technical-v2"
+if (
+    getattr(schematic_module, "SCHEMATIC_RENDERER_REVISION", None)
+    != EXPECTED_SCHEMATIC_RENDERER_REVISION
+):
+    # Community Cloud may hot-reload this entrypoint while retaining the
+    # previously imported project module. Reload it from the deployed source
+    # before binding the renderer functions below.
+    schematic_module = importlib.reload(schematic_module)
+
 from angular_spectrum import (
     ReferenceTransferCalibration,
     SurveyPulseEcho,
@@ -88,7 +100,6 @@ MINIMUM_FILL_HEIGHT_MM = 0.01
 
 COC_DENSITY_KG_M3 = 1020.0
 COC_POISSON_RATIO_ASSUMPTION = 0.40
-EXPECTED_SCHEMATIC_RENDERER_REVISION = "2026-08-03-clean-technical-v2"
 APP_STATE_SCHEMA_VERSION = "2026-08-03-schematic-v2"
 _DERIVED_SESSION_STATE_KEYS = (
     "simulation_result",
